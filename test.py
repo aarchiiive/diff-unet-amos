@@ -291,7 +291,7 @@ class AMOSTester:
         except:
             if self.use_wandb: wandb.log({"table": self.table})    
     
-    def get_numpy_images(self, t, index, is_label=False):
+    def get_numpy_image(self, t, index, is_label=False):
         if is_label: t = torch.argmax(t, dim=1)
         else: t = t.squeeze(0) * 255
         t = t[:, index, ...].to(torch.uint8)
@@ -303,9 +303,9 @@ class AMOSTester:
     
     def tensor2images(self, image, label, output, index=0):
         return {
-            "image" : self.get_numpy_images(image, index),
-            "label" : self.get_numpy_images(label, index, is_label=True),
-            "output" : self.get_numpy_images(output, index, is_label=True),
+            "image" : self.get_numpy_image(image, index),
+            "label" : self.get_numpy_image(label, index, is_label=True),
+            "output" : self.get_numpy_image(output, index, is_label=True),
         }
     
     def log(self, k, v, step=None):
