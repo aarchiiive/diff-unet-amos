@@ -1,4 +1,5 @@
 import os
+import pytz
 import wandb
 import datetime
 import argparse
@@ -27,8 +28,8 @@ from guided_diffusion.gaussian_diffusion import get_named_beta_schedule, ModelMe
 from guided_diffusion.respace import SpacedDiffusion, space_timesteps
 from guided_diffusion.resample import UniformSampler
 
-from dataset.amosloader import get_amosloader
-from dataset_path import dataset_dir
+from utils import get_amosloader
+from dataset_path import data_dir
 
 
 set_determinism(123)
@@ -37,10 +38,25 @@ import os
 import sys
 
 class DiffUNet(nn.Module):
-    def __init__(self, num_classes) -> None:
+    def __init__(self, 
+                 image_size,
+                 depth,
+                 num_classes,
+                 device,
+                 ):
         super().__init__()
+        
+        if isinstance(image_size, tuple):
+            self.width = image_size[0]
+            self.height = image_size[1]
+        elif isinstance(image_size, int):
+            self.width = self.height = image_size
+            
+        self.depth = depth
+        self.num_classes = num_classes
+        self.device = torch.device(device)
+        
         self.embed_model = BasicUNetEncoder(3, 1, 2, [64, 64, 128, 256, 512, 64])
-
         self.model = BasicUNetDe(3, num_classes+1, num_classes, [64, 64, 128, 256, 512, 64], 
                                 act = ("LeakyReLU", {"negative_slope": 0.1, "inplace": False}))
 
@@ -59,7 +75,7 @@ class DiffUNet(nn.Module):
                                             loss_type=LossType.MSE,
                                             )
         self.sampler = UniformSampler(1000)
-
+        
 
     def forward(self, image=None, x=None, pred_type=None, step=None, embedding=None):
         if pred_type == "q_sample":
@@ -73,8 +89,8 @@ class DiffUNet(nn.Module):
 
         elif pred_type == "ddim_sample":
             embeddings = self.embed_model(image)
-            sample_out = self.sample_diffusion.ddim_sample_loop(self.model, (1, 16, 96, 256, 256), model_kwargs={"image": image, "embeddings": embeddings})
-            sample_out = sample_out["pred_xstart"]
+            sample_out = self.sample_diffusion.ddim_sample_loop(self.model, (1, self.num_classes, self.depth, self.width,  self.height), model_kwargs={"image": image, "embeddings": embeddings})
+            sample_out = sample_out["pred_xstart"].to(self.device)
             return sample_out
         
 class AMOSTrainer:
@@ -87,17 +103,16 @@ class AMOSTrainer:
                  num_classes=16,
                  device="cpu", 
                  val_every=1, 
+                 save_freq=5,
                  num_gpus=1, 
                  logdir="./logs/", 
                  resume_path=None,
-                 master_ip='localhost', 
-                 master_port=17750, 
-                 training_script="train.py",
                  use_wandb=True
-                 ):
+                ):
         
         self.env_type = env_type
         self.val_every = val_every
+        self.save_freq = save_freq
         self.max_epochs = max_epochs
         self.batch_size = batch_size
         self.image_size = image_size
@@ -114,38 +129,49 @@ class AMOSTrainer:
         self.model_save_path = os.path.join(logdir, "model")
         self.scheduler = None 
         self.auto_optim = True
-        self.use_wandb = use_wandb  # Change this to False if you don't want to use WandB
+        self.use_wandb = use_wandb
         self.start_epoch = 0
         
         os.makedirs(self.logdir, exist_ok=True)
         os.makedirs(self.model_save_path, exist_ok=True)
         
+        if isinstance(image_size, tuple):
+            self.width = image_size[0]
+            self.height = image_size[1]
+        elif isinstance(image_size, int):
+            self.width = self.height = image_size
+        
         if self.use_wandb:
-            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+            kst = pytz.timezone('Asia/Seoul')
+            current_time = datetime.datetime.now(kst).strftime("%Y%m%d_%H%M%S")
             wandb.init(project="diff-unet", name=f"{current_time}", config=self.__dict__)
 
         
         self.window_infer = SlidingWindowInferer(roi_size=[depth, image_size, image_size],
                                                  sw_batch_size=1,
                                                  overlap=0.5)
-        self.model = DiffUNet(num_classes=num_classes).to(self.device)
         
+        self.model = DiffUNet(image_size=image_size,
+                              depth=depth,
+                              num_classes=num_classes,
+                              device=device).to(self.device)
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=2e-4, weight_decay=1e-3)
+        self.scheduler = LinearWarmupCosineAnnealingLR(self.optimizer,
+                                                  warmup_epochs=100,
+                                                  max_epochs=max_epochs)
+
+        if resume_path is not None:
+            self.load_checkpoint(resume_path)
+            
         if self.num_gpus > 1:
             self.model = DataParallel(self.model)
             
         self.best_mean_dice = 0.0
-        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=2e-4, weight_decay=1e-3)
         self.ce = nn.CrossEntropyLoss() 
         self.mse = nn.MSELoss()
-        self.scheduler = LinearWarmupCosineAnnealingLR(self.optimizer,
-                                                  warmup_epochs=100,
-                                                  max_epochs=max_epochs)
         self.bce = nn.BCEWithLogitsLoss()
         self.dice_loss = DiceLoss(sigmoid=True)
         
-        if resume_path is not None:
-            self.load_checkpoint(resume_path)
-            
     def load_checkpoint(self, checkpoint_path):
         checkpoint = torch.load(checkpoint_path)
         self.model.load_state_dict(checkpoint['model_state_dict'])
@@ -163,12 +189,12 @@ class AMOSTrainer:
                           num_workers=2)
 
     def train(self,
-                train_dataset,
-                optimizer=None,
-                model=None,
-                val_dataset=None,
-                scheduler=None,
-              ):
+              train_dataset,
+              optimizer=None,
+              model=None,
+              val_dataset=None,
+              scheduler=None,
+             ):
         
         if scheduler is not None:
             self.scheduler = scheduler
@@ -283,9 +309,11 @@ class AMOSTrainer:
         if self.local_rank == 0:
             with tqdm(total=len(loader)) as t:
 
-                for idx, batch in enumerate(loader):
+                for idx, (batch, filename) in enumerate(loader):
                     self.global_step += 1
                     t.set_description('Epoch %i' % epoch)
+                    
+                    batch = batch[0]
                     
                     if isinstance(batch, dict):
                         batch = {
@@ -382,12 +410,12 @@ class AMOSTrainer:
         
         label = self.convert_labels(label)
         label = label.float()
-
+        
         return image, label
 
     def convert_labels(self, labels):
         labels_new = []
-        for i in range(16):
+        for i in range(self.num_classes):
             labels_new.append(labels == i)
         
         labels_new = torch.cat(labels_new, dim=1)
@@ -415,18 +443,16 @@ class AMOSTrainer:
         print(f" mean_dice is {mean_dice}")
 
     def validation_step(self, batch):
-        image, label = self.get_input(batch)    
+        image, label = self.get_input(batch)  
+        
         output = self.window_infer(image, self.model, pred_type="ddim_sample")
-
         output = torch.sigmoid(output)
-
         output = (output > 0.5).float().cpu().numpy()
 
         target = label.cpu().numpy()
         dices = []
         hd = []
-        c = 16
-        for i in range(c):
+        for i in range(self.num_classes):
             pred_c = output[:, i]
             target_c = target[:, i]
 
@@ -442,19 +468,14 @@ class AMOSTrainer:
 if __name__ == "__main__":
     # data_dir = "./RawData/Training/"
 
-    logdir = "logs/amos"
+    logdir = "logs/amos_test"
     model_save_path = os.path.join(logdir, "model")
 
     max_epoch = 50000
-    batch_size = 10
+    batch_size = 1
     val_every = 40000
     env = "DDP"
     num_gpus = 5
-    
-    # or
-    # env = "pytorch"
-    # num_gpus = 1
-
     device = "cuda:0"
 
     trainer = AMOSTrainer(env_type=env,
@@ -464,10 +485,8 @@ if __name__ == "__main__":
                           logdir=logdir,
                           val_every=val_every,
                           num_gpus=num_gpus,
-                          master_port=17751,
-                          training_script=__file__,
-                          use_wandb=True)
+                          use_wandb=False)
 
-    train_ds, val_ds = get_amosloader(data_dir=dataset_dir, mode="train")
+    train_ds, val_ds = get_amosloader(data_dir=data_dir, mode="train")
 
     trainer.train(train_dataset=train_ds, val_dataset=val_ds)

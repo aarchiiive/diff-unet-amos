@@ -90,13 +90,13 @@ def get_amosloader(data_dir, spatial_size=96, num_samples=1, mode="train"):
                                 transform=train_transform, 
                                 data_dir=data_dir, 
                                 data_dict=data,
-                                key="train")
+                                mode="train")
     
         val_dataset = AMOSDataset(data["val"]["files"], 
                             transform=val_transform, 
                             data_dir=data_dir, 
                             data_dict=data, 
-                            key="val")
+                            mode="val")
 
         loader = [train_dataset, val_dataset]
         
@@ -104,7 +104,7 @@ def get_amosloader(data_dir, spatial_size=96, num_samples=1, mode="train"):
         test_dataset = AMOSDataset(data["val"]["files"], 
                             transform=test_transform, 
                             data_dir=data_dir, 
-                            key="test",
+                            mode="test",
                             data_dict=data)
         
         return test_dataset
@@ -113,18 +113,18 @@ def get_amosloader(data_dir, spatial_size=96, num_samples=1, mode="train"):
                                 transform=train_transform, 
                                 data_dir=data_dir, 
                                 data_dict=data,
-                                key="train")
+                                mode="train")
     
         val_dataset = AMOSDataset(data["val"]["files"], 
                             transform=val_transform, 
                             data_dir=data_dir, 
                             data_dict=data, 
-                            key="val")
+                            mode="val")
         
         test_dataset = AMOSDataset(data["val"]["files"], 
                             transform=test_transform, 
                             data_dir=data_dir, 
-                            key="test",
+                            mode="test",
                             data_dict=data)
         
         loader = [train_dataset, val_dataset, test_dataset]

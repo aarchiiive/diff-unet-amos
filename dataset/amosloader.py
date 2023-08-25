@@ -94,7 +94,7 @@ class AMOSDataset(Dataset):
                  transform : transforms = None, 
                  data_dir : Optional[str] = None, 
                  data_dict : Optional[dict] = None, 
-                 key : Optional[str] = "train") -> None:
+                 mode : Optional[str] = "train") -> None:
         super().__init__()
         
         self.transform = transform
@@ -106,12 +106,13 @@ class AMOSDataset(Dataset):
         self.data_dict = data_dict
         self.tensor_dir = os.path.join(data_dir, "tensor")
         self.cache_dir = os.path.join(data_dir, "cache")
-        self.cache_path = os.path.join(self.cache_dir, f"{key}.pkl")
+        self.cache_path = os.path.join(self.cache_dir, f"{mode}.pkl")
+        self.mode = mode
         
-        assert key != "train" or  key != "val" or  key != "test", \
+        assert mode != "train" or  mode != "val" or  mode != "test", \
             "key must be one of these keywords : train / val / test"
             
-        self.key = "Tr" if key == "train" else "Va"
+        self.key = "Tr" if mode == "train" else "Va"
         
         # self.cache = cache
         
@@ -123,10 +124,10 @@ class AMOSDataset(Dataset):
         self.cache = {}
         
         print("Caching....")
-        # self.save_cache(key)
+        # self.save_cache(mode)
         
     
-    def load_cache(self, key):
+    def load_cache(self, mode):
         if os.path.exists(self.cache_path):
             with open(self.cache_path, 'rb') as f:
                 self.cache = pickle.load(f)
@@ -135,7 +136,7 @@ class AMOSDataset(Dataset):
             self.cache = {}
             return True
  
-    def save_cache(self, key):
+    def save_cache(self, mode):
         with open(self.cache_path, 'wb') as f:
             for d in tqdm(self.data_list):
                 _ = self.read_data(d)
@@ -241,9 +242,7 @@ class AMOSDataset(Dataset):
         if self.transform is not None:
             image = self.transform(image)
         
-        if self.key == "train":
-            return image
-        else: 
-            return image, self.data_list[i][0]
+        return image, self.data_list[i][0]
+            
 
 
