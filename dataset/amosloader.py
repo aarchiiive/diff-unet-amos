@@ -20,12 +20,9 @@ from typing import (
 )
 
 import os
-import glob 
-import time
 import pickle
 import numpy as np
 from tqdm import tqdm 
-from collections import OrderedDict
 
 import nibabel
 import SimpleITK as sitk
@@ -115,6 +112,7 @@ class AMOSDataset(Dataset):
             "key must be one of these keywords : train / val / test"
             
         self.key = "Tr" if key == "train" else "Va"
+        
         # self.cache = cache
         
         self.resize = transforms.Compose([transforms.Resize((self.image_size, self.image_size))])
@@ -125,7 +123,7 @@ class AMOSDataset(Dataset):
         self.cache = {}
         
         print("Caching....")
-        self.save_cache(key)
+        # self.save_cache(key)
         
     
     def load_cache(self, key):
@@ -166,7 +164,6 @@ class AMOSDataset(Dataset):
             # image = torch.transpose(image, 0, 2).contiguous()
             # label = torch.transpose(label, 0, 2).contiguous()
             # raw_label = torch.transpose(raw_label, 0, 2).contiguous()
-            
             
             if self.padding:
                 _, _, d = image.shape
@@ -240,131 +237,13 @@ class AMOSDataset(Dataset):
     
     def __getitem__(self, i):
         image = self.read_data(self.data_list[i])
-        # try:
-        #     image = self.read_data(self.data_list[i])
-        # except:
-        #     with open("./bugs.txt", "a+") as f:
-        #         f.write(f"Bugs reported, {self.data_list[i]}\n")
-        #     if i != len(self.data_list)-1:
-        #         return self.__getitem__(i+1)
-        #     else :
-        #         return self.__getitem__(i-1)
         
         if self.transform is not None:
             image = self.transform(image)
-            
-        return image
-
-
-def get_amosloader(data_dir, spatial_size=96, num_samples=1, mode="train"):
-    data = {
-        "train" : 
-            {"images" : sorted(glob.glob(f"{data_dir}/imagesTr/*.nii.gz")),
-             "labels" : sorted(glob.glob(f"{data_dir}/labelsTr/*.nii.gz"))},
-        "val" : 
-            {"images" : sorted(glob.glob(f"{data_dir}/imagesVa/*.nii.gz")),
-             "labels" : sorted(glob.glob(f"{data_dir}/labelsVa/*.nii.gz"))},
-    }
-    
-    paired = []
-
-    for image_path, label_path in zip(data["train"]["images"], data["train"]["labels"]):
-        pair = [image_path, label_path]
-        paired.append(pair)
-    
-    data["train"]["files"] = paired
-    
-    paired = []
-
-    for image_path, label_path in zip(data["val"]["images"], data["val"]["labels"]):
-        pair = [image_path, label_path]
-        paired.append(pair)
         
-    data["val"]["files"] = paired
-        
-    train_transform = transforms.Compose(
-        [   
-            transforms.ScaleIntensityRanged(
-                keys=["image"], a_min=-175, a_max=250.0, b_min=0, b_max=1.0, clip=True
-            ),
-            transforms.CropForegroundd(keys=["image", "label"], source_key="image"),
-            transforms.RandCropByPosNegLabeld(
-                keys=["image", "label"],
-                label_key="label",
-                spatial_size=(spatial_size, spatial_size, spatial_size),
-                pos=1,
-                neg=1,
-                num_samples=num_samples,
-                image_key="image",
-                image_threshold=0,
-            ),
-            
-            transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=0),
-            transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=1),
-            transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=2),
-            transforms.RandRotate90d(keys=["image", "label"], prob=0.2, max_k=3),
+        if self.key == "train":
+            return image
+        else: 
+            return image, self.data_list[i][0]
 
-            transforms.RandScaleIntensityd(keys="image", factors=0.1, prob=0.1),
-            transforms.RandShiftIntensityd(keys="image", offsets=0.1, prob=0.1),
-            transforms.ToTensord(keys=["image", "label"],),
-        ]
-    )
-    
-    val_transform = transforms.Compose(
-        [   
-            transforms.ScaleIntensityRanged(
-                keys=["image"], a_min=-175, a_max=250.0, b_min=0, b_max=1.0, clip=True
-            ),
-            transforms.CropForegroundd(keys=["image", "label"], source_key="image"),
-            
-            transforms.ToTensord(keys=["image", "label"]),
-        ]
-    )
 
-    test_transform = transforms.Compose(
-        [   
-            transforms.ScaleIntensityRanged(
-                keys=["image"], a_min=-175, a_max=250.0, b_min=0, b_max=1.0, clip=True
-            ),            
-            transforms.ToTensord(keys=["image", "raw_label"]),
-        ]
-    )
-
-    # train_ds = PretrainDataset(data["train"]["files"], transform=train_transform, data_dir=data_dir, cache=cache)
-    # val_ds = PretrainDataset(data["val"]["files"], transform=val_transform, data_dir=data_dir, cache=cache)
-    # test_ds = PretrainDataset(data["val"]["files"], transform=test_transform, data_dir=data_dir)
-    
-    train_dataset = AMOSDataset(data["train"]["files"], 
-                                transform=train_transform, 
-                                data_dir=data_dir, 
-                                data_dict=data,
-                                key="train")
-    
-    # train_dataset.nii2tensor()
-    
-    val_dataset = AMOSDataset(data["val"]["files"], 
-                         transform=val_transform, 
-                         data_dir=data_dir, 
-                         data_dict=data, 
-                         key="val")
-    
-    if mode != "train":
-        test_dataset = AMOSDataset(data["val"]["files"], 
-                            transform=test_transform, 
-                            data_dir=data_dir, 
-                            key="test",
-                            data_dict=data)
-    
-        loader = [train_dataset, val_dataset, test_dataset]
-    else:
-        loader = [train_dataset, val_dataset]
-    
-    # t0 = time.time()
-    # for data in train_dataset:
-    #     # print(data[0].keys())
-    #     print(data[0]['image'].shape)
-    #     print(f"{time.time() - t0:.4f}s")
-        
-    #     t0 = time.time()
-
-    return loader
