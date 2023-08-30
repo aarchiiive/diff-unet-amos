@@ -10,7 +10,7 @@ def delete_last_model(model_dir, symbol):
         os.remove(last_model[0])
 
 
-def save_new_model_and_delete_last(model, optimizer, scheduler, epoch, save_path, delete_symbol=None):
+def save_new_model_and_delete_last(model, optimizer, scheduler, epoch, best_mean_dice, save_path, delete_symbol=None):
     save_dir = os.path.dirname(save_path)
 
     os.makedirs(save_dir, exist_ok=True)
@@ -25,6 +25,7 @@ def save_new_model_and_delete_last(model, optimizer, scheduler, epoch, save_path
         'optimizer' : optimizer.state_dict(),
         'scheduler': scheduler.state_dict(),
         'epoch' : epoch,
+        'best_mean_dice' : best_mean_dice,
     }
     
     torch.save(state, save_path)

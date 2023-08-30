@@ -1,6 +1,7 @@
 import os
 import pytz
 import wandb
+import argparse
 import datetime
 from tqdm import tqdm
 import numpy as np
@@ -29,11 +30,8 @@ from metric import *
 from utils import get_amosloader
 from dataset_path import data_dir
 
-
 set_determinism(123)
 
-import os
-import sys
 
 class DiffUNet(nn.Module):
     def __init__(self, 
@@ -95,7 +93,6 @@ class DiffUNet(nn.Module):
         
 class AMOSTrainer:
     def __init__(self, 
-                 env_type, 
                  max_epochs,
                  batch_size, 
                  image_size=256,
@@ -105,13 +102,12 @@ class AMOSTrainer:
                  val_every=1, 
                  save_freq=5,
                  num_gpus=1, 
-                 logdir="./logs/", 
+                 logdir="logs", 
                  resume_path=None,
                  use_cache=True,
                  use_wandb=True
                 ):
         
-        self.env_type = env_type
         self.val_every = val_every
         self.save_freq = save_freq
         self.max_epochs = max_epochs
@@ -124,16 +120,15 @@ class AMOSTrainer:
         self.device = torch.device(device)
         self.local_rank = 0
         self.batch_size = batch_size
-        self.logdir = logdir
-        self.model_save_path = os.path.join(logdir, "model")
-        self.scheduler = None 
+        self.logdir = os.path.join("logs", logdir)
+        self.weights_path = os.path.join(self.logdir, "weights")
         self.auto_optim = True
         self.use_cache = use_cache
         self.use_wandb = use_wandb
         self.start_epoch = 0
         
         os.makedirs(self.logdir, exist_ok=True)
-        os.makedirs(self.model_save_path, exist_ok=True)
+        os.makedirs(self.weights_path, exist_ok=True)
         
         if isinstance(image_size, tuple):
             self.width = image_size[0]
@@ -142,11 +137,11 @@ class AMOSTrainer:
             self.width = self.height = image_size
         
         if self.use_wandb:
-            kst = pytz.timezone('Asia/Seoul')
-            current_time = datetime.datetime.now(kst).strftime("%Y%m%d_%H%M%S")
-            wandb.init(project="diff-unet", name=f"{current_time}", config=self.__dict__)
+            wandb.init(project="diff-unet", 
+                       name=f"{logdir}", 
+                       config=self.__dict__, 
+                       resume=resume_path is not None)
 
-        
         self.window_infer = SlidingWindowInferer(roi_size=[depth, image_size, image_size],
                                                  sw_batch_size=1,
                                                  overlap=0.5)
@@ -178,7 +173,8 @@ class AMOSTrainer:
         self.optimizer.load_state_dict(checkpoint['optimizer'])
         self.scheduler.load_state_dict(checkpoint['scheduler'])
         self.start_epoch = checkpoint['epoch']
-        # 추가적인 필요한 상태 로드
+        if 'best_mean_dice' in checkpoint.keys():
+            self.best_mean_dice = checkpoint['best_mean_dice']
 
         print(f"Checkpoint loaded from {checkpoint_path}")
         
@@ -188,48 +184,29 @@ class AMOSTrainer:
                           shuffle=shuffle,
                           num_workers=2)
 
-    def train(self,
-              train_dataset,
-              val_dataset=None,
-              scheduler=None,
-             ):
-        
-        if scheduler is not None:
-            self.scheduler = scheduler
-
+    def train(self, train_dataset, val_dataset=None):
         set_determinism(1234 + self.local_rank)
-        if self.model is not None:
-            print(f"check model parameter: {next(self.model.parameters()).sum()}")
-            para = sum([np.prod(list(p.size())) for p in self.model.parameters()])
-            if self.local_rank == 0:
-                print(f"model parameters is {para * 4 / 1000 / 1000}M ")
+        print(f"check model parameter: {next(self.model.parameters()).sum()}")
+        para = sum([np.prod(list(p.size())) for p in self.model.parameters()])
+        if self.local_rank == 0:
+            print(f"model parameters is {para * 4 / 1000 / 1000}M ")
                 
         self.global_step = 0
         
         os.makedirs(self.logdir, exist_ok=True)
 
         train_loader = self.get_dataloader(train_dataset, shuffle=True, batch_size=self.batch_size)
-        
-        if val_dataset is not None:
-            val_loader = self.get_dataloader(val_dataset, shuffle=False, batch_size=1, train=False)
-        else:
-            val_loader = None 
+        val_loader = self.get_dataloader(val_dataset, shuffle=False, batch_size=1, train=False)
             
         for epoch in range(self.start_epoch, self.max_epochs):
             self.epoch = epoch 
-            
             self.train_epoch(train_loader, epoch)
             
             val_outputs = []
             
-            if (epoch + 1) % self.val_every == 0 \
-                    and val_loader is not None :
-                if self.model is not None:
-                    self.model.eval()
-                # if self.ddp:
-                #     torch.distributed.barrier()
+            if (epoch + 1) % self.val_every == 0:
+                self.model.eval()
                 for idx, (batch, filename) in tqdm(enumerate(val_loader), total=len(val_loader)):
-                    
                     if isinstance(batch, dict):
                         batch = {
                             x: batch[x].to(self.device)
@@ -272,9 +249,7 @@ class AMOSTrainer:
 
                     self.validation_end(mean_val_outputs=v_sum, epoch=epoch)
             
-            if self.model is not None:
-                self.model.train()
-
+            self.model.train()
 
     def train_epoch(self, loader, epoch):
         self.model.train()
@@ -302,8 +277,7 @@ class AMOSTrainer:
                         print("not support data type")
                         exit(0)
                     
-                    if self.model is not None:
-                        for param in self.model.parameters(): param.grad = None
+                    for param in self.model.parameters(): param.grad = None
                     loss = self.training_step(batch)
 
                     if self.auto_optim:
@@ -322,7 +296,8 @@ class AMOSTrainer:
                                            self.optimizer,
                                            self.scheduler, 
                                            epoch,
-                                           os.path.join(self.model_save_path, f"epoch_{epoch}.pt"))
+                                           self.best_mean_dice,
+                                           os.path.join(self.weights_path, f"epoch_{epoch}.pt"))
         
     def training_step(self, batch):
         image, label = self.get_input(batch)
@@ -373,7 +348,8 @@ class AMOSTrainer:
                                            self.optimizer,
                                            self.scheduler, 
                                            epoch,
-                                           os.path.join(self.model_save_path, f"best_{mean_dice:.4f}.pt"))
+                                           self.best_mean_dice,
+                                           os.path.join(self.weights_path, f"best_{mean_dice:.4f}.pt"))
 
         print(f"mean_dice : {mean_dice}")
         
@@ -400,30 +376,53 @@ class AMOSTrainer:
         if self.use_wandb:
             wandb.log({k: v}, step=step)
     
+def parse_args():
+    parser = argparse.ArgumentParser()
+
+    # Training settings
+    parser.add_argument("--logdir", type=str,
+                        help="Directory to store log files")
+    parser.add_argument("--max_epoch", type=int, default=50000,
+                        help="Maximum number of training epochs")
+    parser.add_argument("--batch_size", type=int, default=10,
+                        help="Batch size for training")
+    parser.add_argument("--device", type=str, default="cuda:0",
+                        help="Device for training (e.g., 'cuda:0', 'cpu')")
+    parser.add_argument("--val_every", type=int, default=100,
+                        help="Validation frequency (number of iterations)")
+    parser.add_argument("--num_gpus", type=int, default=5,
+                        help="Number of GPUs to use for training")
+    parser.add_argument("--resume_path", type=str, default=None,
+                        help="Path to the checkpoint for resuming training")
+    parser.add_argument("--use_wandb", action="store_true", default=True, # default=False,
+                        help="Use Weights & Biases for logging")
+    parser.add_argument("--use_cache", action="store_true", default=True, # default=False,
+                        help="Enable caching")
+
+    args = parser.parse_args()
+    return args
+
 if __name__ == "__main__":
-    # data_dir = "./RawData/Training/"
+    args = parse_args()
 
-    logdir = "logs/amos_remastered"
-    model_save_path = os.path.join(logdir, "model")
+    logdir = args.logdir
+    max_epoch = args.max_epoch
+    batch_size = args.batch_size
+    device = args.device
+    val_every = args.val_every
+    num_gpus = args.num_gpus
+    resume_path = args.resume_path
+    use_wandb = args.use_wandb
+    use_cache = args.use_cache
+    # resume_path = "logs/amos_remastered/model/epoch_24.pt"
 
-    max_epoch = 50000
-    batch_size = 10
-    val_every = 50
-    env = "DDP"
-    num_gpus = 5
-    device = "cuda:0"
-    resume_path = "logs/amos_remastered/model/epoch_24.pt"
-    use_wandb = True
-    use_cache = True
-
-    trainer = AMOSTrainer(env_type=env,
-                          max_epochs=max_epoch,
+    trainer = AMOSTrainer(max_epochs=max_epoch,
                           batch_size=batch_size,
                           device=device,
                           logdir=logdir,
                           val_every=val_every,
-                          resume_path=resume_path,
                           num_gpus=num_gpus,
+                          resume_path=resume_path,
                           use_wandb=use_wandb,
                           use_cache=use_cache)
 
