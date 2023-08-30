@@ -94,7 +94,8 @@ class AMOSDataset(Dataset):
                  transform : transforms = None, 
                  data_dir : Optional[str] = None, 
                  data_dict : Optional[dict] = None, 
-                 mode : Optional[str] = "train") -> None:
+                 mode : Optional[str] = "train",
+                 use_cache : Optional[bool] = True) -> None:
         super().__init__()
         
         self.transform = transform
@@ -108,6 +109,7 @@ class AMOSDataset(Dataset):
         self.cache_dir = os.path.join(data_dir, "cache")
         self.cache_path = os.path.join(self.cache_dir, f"{mode}.pkl")
         self.mode = mode
+        self.use_cache = use_cache
         
         assert mode != "train" or  mode != "val" or  mode != "test", \
             "key must be one of these keywords : train / val / test"
@@ -123,8 +125,9 @@ class AMOSDataset(Dataset):
         
         self.cache = {}
         
-        print("Caching....")
-        # self.save_cache(mode)
+        if use_cache:
+            print("Caching....")
+            self.save_cache(mode)
         
     
     def load_cache(self, mode):

@@ -99,7 +99,9 @@ class DiffUNet(nn.Module):
         elif pred_type == "ddim_sample":
             embeddings = self.embed_model(image)
 
-            sample_out = self.sample_diffusion.ddim_sample_loop(self.model, (1, self.num_classes, self.depth, self.width, self.height), model_kwargs={"image": image, "embeddings": embeddings})
+            sample_out = self.sample_diffusion.ddim_sample_loop(self.model, 
+                                                                (1, self.num_classes, self.depth, self.width, self.height), 
+                                                                model_kwargs={"image": image, "embeddings": embeddings})
             sample_return = torch.zeros((1, self.num_classes, self.depth, self.width, self.height)).to(self.device)
             all_samples = sample_out["all_samples"]
             index = 0
@@ -174,7 +176,7 @@ class AMOSTester:
 
     def convert_labels(self, labels):
         labels_new = []
-        for i in range(self.num_classes):
+        for i in range(1, self.num_classes):
             labels_new.append(labels == i)
         
         labels_new = torch.cat(labels_new, dim=1)

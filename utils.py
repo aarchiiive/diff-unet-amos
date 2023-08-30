@@ -5,7 +5,7 @@ from monai import transforms
 from dataset.amosloader import AMOSDataset
 
 
-def get_amosloader(data_dir, spatial_size=96, num_samples=1, mode="train"):
+def get_amosloader(data_dir, spatial_size=96, num_samples=1, mode="train", use_cache=True):
     data = {
         "train" : 
             {"images" : sorted(glob.glob(f"{data_dir}/imagesTr/*.nii.gz")),
@@ -83,20 +83,20 @@ def get_amosloader(data_dir, spatial_size=96, num_samples=1, mode="train"):
     # val_ds = PretrainDataset(data["val"]["files"], transform=val_transform, data_dir=data_dir, cache=cache)
     # test_ds = PretrainDataset(data["val"]["files"], transform=test_transform, data_dir=data_dir)
     
-    
-    
     if mode == "train":
         train_dataset = AMOSDataset(data["train"]["files"], 
                                 transform=train_transform, 
                                 data_dir=data_dir, 
                                 data_dict=data,
-                                mode="train")
+                                mode="train",
+                                use_cache=use_cache)
     
         val_dataset = AMOSDataset(data["val"]["files"], 
                             transform=val_transform, 
                             data_dir=data_dir, 
                             data_dict=data, 
-                            mode="val")
+                            mode="val",
+                            use_cache=use_cache)
 
         loader = [train_dataset, val_dataset]
         
@@ -104,8 +104,9 @@ def get_amosloader(data_dir, spatial_size=96, num_samples=1, mode="train"):
         test_dataset = AMOSDataset(data["val"]["files"], 
                             transform=test_transform, 
                             data_dir=data_dir, 
+                            data_dict=data,
                             mode="test",
-                            data_dict=data)
+                            use_cache=use_cache)
         
         return test_dataset
     else:
@@ -113,19 +114,22 @@ def get_amosloader(data_dir, spatial_size=96, num_samples=1, mode="train"):
                                 transform=train_transform, 
                                 data_dir=data_dir, 
                                 data_dict=data,
-                                mode="train")
+                                mode="train",
+                                use_cache=use_cache)
     
         val_dataset = AMOSDataset(data["val"]["files"], 
                             transform=val_transform, 
                             data_dir=data_dir, 
                             data_dict=data, 
-                            mode="val")
+                            mode="val",
+                            use_cache=use_cache)
         
         test_dataset = AMOSDataset(data["val"]["files"], 
                             transform=test_transform, 
                             data_dir=data_dir, 
                             mode="test",
-                            data_dict=data)
+                            data_dict=data,
+                            use_cache=use_cache)
         
         loader = [train_dataset, val_dataset, test_dataset]
     
