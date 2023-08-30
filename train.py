@@ -162,10 +162,7 @@ class AMOSTrainer:
                            name=f"{logdir}",
                            config=self.__dict__)
             else:
-                wandb.init(project="diff-unet", 
-                           name=f"{logdir}",
-                           id=self.wandb_id, 
-                           config=self.__dict__, 
+                wandb.init(id=self.wandb_id, 
                            resume=True)
                 
         if self.num_gpus > 1:
