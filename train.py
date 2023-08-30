@@ -84,7 +84,6 @@ class DiffUNet(nn.Module):
             return self.model(x, t=step, image=image, embeddings=embeddings)
 
         elif pred_type == "ddim_sample":
-            print(self.embed_model.device)
             embeddings = self.embed_model(image)
             sample_out = self.sample_diffusion.ddim_sample_loop(self.model, 
                                                                 (1, self.num_classes-1, self.depth, self.width,  self.height), 
@@ -127,6 +126,7 @@ class AMOSTrainer:
         self.use_cache = use_cache
         self.use_wandb = use_wandb
         self.start_epoch = 0
+        self.global_step = 0
         self.wandb_id = None
         
         os.makedirs(self.logdir, exist_ok=True)
@@ -137,8 +137,6 @@ class AMOSTrainer:
             self.height = image_size[1]
         elif isinstance(image_size, int):
             self.width = self.height = image_size
-        
-        
 
         self.window_infer = SlidingWindowInferer(roi_size=[depth, image_size, image_size],
                                                  sw_batch_size=1,
@@ -150,20 +148,25 @@ class AMOSTrainer:
                               device=device).to(self.device)
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=2e-4, weight_decay=1e-3)
         self.scheduler = LinearWarmupCosineAnnealingLR(self.optimizer,
-                                                  warmup_epochs=100,
-                                                  max_epochs=max_epochs)
+                                                       warmup_epochs=100,
+                                                       max_epochs=max_epochs)
 
         if resume_path is not None:
             self.load_checkpoint(resume_path)
             
         if self.use_wandb:
-            if resume_path is None:
-                wandb.init(project="diff-unet", 
-                           name=f"{logdir}",
-                           config=self.__dict__)
-            else:
-                wandb.init(id=self.wandb_id, 
-                           resume=True)
+            # if resume_path is None:
+            #     wandb.init(project="diff-unet", 
+            #                name=f"{logdir}",
+            #                config=self.__dict__)
+            # else:
+            #     wandb.init(project="diff-unet", 
+            #                id=self.wandb_id, 
+            #                resume=True)
+                
+            wandb.init(project="diff-unet", 
+                        name=f"{logdir}",
+                        config=self.__dict__)
                 
         if self.num_gpus > 1:
             self.model = DataParallel(self.model)
@@ -180,6 +183,7 @@ class AMOSTrainer:
         self.optimizer.load_state_dict(checkpoint['optimizer'])
         self.scheduler.load_state_dict(checkpoint['scheduler'])
         self.start_epoch = checkpoint['epoch']
+        self.global_step = checkpoint['global_step']
         self.best_mean_dice = checkpoint['best_mean_dice']
         self.wandb_id = checkpoint['id']
         
@@ -197,8 +201,6 @@ class AMOSTrainer:
         para = sum([np.prod(list(p.size())) for p in self.model.parameters()])
         if self.local_rank == 0:
             print(f"model parameters is {para * 4 / 1000 / 1000}M ")
-                
-        self.global_step = 0
         
         os.makedirs(self.logdir, exist_ok=True)
 
@@ -300,7 +302,8 @@ class AMOSTrainer:
             save_new_model_and_delete_last(self.model,
                                            self.optimizer,
                                            self.scheduler, 
-                                           epoch,
+                                           self.epoch,
+                                           self.global_step,
                                            self.best_mean_dice,
                                            wandb.run.id,
                                            os.path.join(self.weights_path, f"epoch_{epoch}.pt"))
@@ -336,7 +339,8 @@ class AMOSTrainer:
             save_new_model_and_delete_last(self.model,
                                            self.optimizer,
                                            self.scheduler, 
-                                           epoch,
+                                           self.epoch,
+                                           self.global_step,
                                            self.best_mean_dice,
                                            wandb.run.id,
                                            os.path.join(self.weights_path, f"best_{mean_dice:.4f}.pt"))
@@ -396,11 +400,11 @@ def parse_args():
                         help="Batch size for training")
     parser.add_argument("--device", type=str, default="cuda:0",
                         help="Device for training (e.g., 'cuda:0', 'cpu')")
-    parser.add_argument("--val_every", type=int, default=100,
+    parser.add_argument("--val_every", type=int, default=400,
                         help="Validation frequency (number of iterations)")
     parser.add_argument("--num_gpus", type=int, default=5,
                         help="Number of GPUs to use for training")
-    parser.add_argument("--resume_path", type=str, default="logs/amos_ver2/weights/epoch_69.pt",
+    parser.add_argument("--resume_path", type=str, default="logs/amos_ver2/weights/epoch_349.pt",
                         help="Path to the checkpoint for resuming training")
     parser.add_argument("--use_wandb", action="store_true", default=True, # default=False,
                         help="Use Weights & Biases for logging")

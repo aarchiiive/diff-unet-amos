@@ -66,7 +66,7 @@ class DiffUNet(nn.Module):
         self.device = torch.device(device)
         
         self.embed_model = BasicUNetEncoder(3, 1, 2, [64, 64, 128, 256, 512, 64])
-        self.model = BasicUNetDe(3, num_classes+1, num_classes, [64, 64, 128, 256, 512, 64], 
+        self.model = BasicUNetDe(3, num_classes, num_classes-1, [64, 64, 128, 256, 512, 64], 
                                 act = ("LeakyReLU", {"negative_slope": 0.1, "inplace": False}))
 
         betas = get_named_beta_schedule("linear", 1000)
@@ -98,9 +98,8 @@ class DiffUNet(nn.Module):
 
         elif pred_type == "ddim_sample":
             embeddings = self.embed_model(image)
-
             sample_out = self.sample_diffusion.ddim_sample_loop(self.model, 
-                                                                (1, self.num_classes, self.depth, self.width, self.height), 
+                                                                (1, self.num_classes-1, self.depth, self.width, self.height), 
                                                                 model_kwargs={"image": image, "embeddings": embeddings})
             sample_return = torch.zeros((1, self.num_classes, self.depth, self.width, self.height)).to(self.device)
             all_samples = sample_out["all_samples"]
@@ -202,7 +201,7 @@ class AMOSTester:
 
         dices = OrderedDict({v : 0 for v in self.class_names.values()})
         # hd = []
-        for i in range(self.num_classes):
+        for i in range(self.num_classes-1):
             pred = output[:, i]
             gt = target[:, i]
 

@@ -10,7 +10,7 @@ def delete_last_model(model_dir, symbol):
         os.remove(last_model[0])
 
 
-def save_new_model_and_delete_last(model, optimizer, scheduler, epoch, best_mean_dice, id, save_path, delete_symbol=None):
+def save_new_model_and_delete_last(model, optimizer, scheduler, epoch, global_step, best_mean_dice, id, save_path, delete_symbol=None):
     save_dir = os.path.dirname(save_path)
 
     os.makedirs(save_dir, exist_ok=True)
@@ -24,7 +24,8 @@ def save_new_model_and_delete_last(model, optimizer, scheduler, epoch, best_mean
         'model_state_dict': model.state_dict(),
         'optimizer' : optimizer.state_dict(),
         'scheduler': scheduler.state_dict(),
-        'epoch' : epoch,
+        'epoch' : epoch+1,
+        'global_step' : global_step,
         'best_mean_dice' : best_mean_dice,
         'id' : id,
     }
