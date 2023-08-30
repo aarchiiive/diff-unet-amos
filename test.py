@@ -149,7 +149,9 @@ class AMOSTester:
             
         self.window_infer = SlidingWindowInferer(roi_size=[depth, image_size, image_size],
                                                  sw_batch_size=1,
-                                                 overlap=0.6)
+                                                 overlap=0.6,
+                                                 device=device,
+                                                 sw_device=device)
         
         self.model = DiffUNet(image_size=image_size,
                               depth=depth,

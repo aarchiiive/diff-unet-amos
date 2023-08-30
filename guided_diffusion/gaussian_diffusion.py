@@ -257,8 +257,6 @@ class GaussianDiffusion:
         B, C = x.shape[:2]
         assert t.shape == (B,)
         model_output = model(x, self._scale_timesteps(t), **model_kwargs)
-
-        
         
         if self.model_var_type in [ModelVarType.LEARNED, ModelVarType.LEARNED_RANGE]:
             assert model_output.shape == (B, C * 2, *x.shape[2:])
@@ -584,6 +582,7 @@ class GaussianDiffusion:
             (t != 0).float().view(-1, *([1] * (len(x.shape) - 1)))
         )  # no noise when t == 0
         sample = mean_pred + nonzero_mask * sigma * noise
+        # print("sample :", sample.device)
         return {"sample": sample, "pred_xstart": out["pred_xstart"], "model_output": out["model_output"]}
 
     def ddim_reverse_sample(
@@ -686,6 +685,7 @@ class GaussianDiffusion:
         """
         if device is None:
             device = next(model.parameters()).device
+            # print(device)
         assert isinstance(shape, (tuple, list))
         if noise is not None:
             img = noise
