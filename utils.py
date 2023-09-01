@@ -1,5 +1,9 @@
+import os
 import glob 
 import argparse
+
+import torch
+import torch.nn as nn
 
 from monai import transforms
 
@@ -13,7 +17,7 @@ def parse_args():
                         help="Directory to store log files")
     parser.add_argument("--model_name", type=str, default="smooth_diff_unet",
                         help="Name of the model type")
-    parser.add_argument("--max_epoch", type=int, default=50000,
+    parser.add_argument("--max_epochs", type=int, default=50000,
                         help="Maximum number of training epochs")
     parser.add_argument("--batch_size", type=int, default=10,
                         help="Batch size for training")
@@ -31,13 +35,41 @@ def parse_args():
                         help="Path to the checkpoint for resuming training")
     parser.add_argument("--pretrained", action="store_true", default=False, # default=False,
                         help="Use pretrained weights")
-    parser.add_argument("--use_wandb", action="store_true", default=True, # default=False,
-                        help="Use Weights & Biases for logging")
-    parser.add_argument("--use_cache", action="store_true", default=True, # default=False,
+    parser.add_argument("--use_amp", action="store_true", default=False, # default=False,
+                        help="Enable Automatic Mixed Precision (AMP)")
+    parser.add_argument("--use_cache", action="store_true", default=False, # default=False,
                         help="Enable caching")
+    parser.add_argument("--use_wandb", action="store_true", default=False, # default=False,
+                        help="Use Weights & Biases for logging")
+    
 
     args = parser.parse_args()
     return args
+
+
+def save_model(model, optimizer, scheduler, epoch, global_step, best_mean_dice, id, save_path, delete_symbol=None):
+    save_dir = os.path.dirname(save_path)
+
+    os.makedirs(save_dir, exist_ok=True)
+    # if delete_last_model is not None:
+    #     delete_last_model(save_dir, delete_symbol)
+    
+    if isinstance(model, nn.DataParallel):
+        model = model.module
+        
+    state = {
+        'model_state_dict': model.state_dict(),
+        'optimizer' : optimizer.state_dict(),
+        'scheduler': scheduler.state_dict(),
+        'epoch' : epoch+1,
+        'global_step' : global_step,
+        'best_mean_dice' : best_mean_dice,
+        'id' : id,
+    }
+    
+    torch.save(state, save_path)
+
+    print(f"model is saved in {save_path}")
 
 
 def get_amosloader(data_dir, spatial_size=96, num_samples=1, mode="train", use_cache=True):

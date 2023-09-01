@@ -35,7 +35,7 @@ class SmoothLayer(nn.Module):
         
     def forward(self, x: torch.Tensor):
         p = self.p
-        _x = F.pad(x.clone() , self.padding, "constant", 0)
+        _x = F.pad(x , self.padding, "constant", 0)
         laplacian = -6 * _x
         for shift in self.shifts:
             laplacian = laplacian + torch.roll(_x, shifts=shift, dims=self.dims)
@@ -62,7 +62,7 @@ class SmoothUNetEncoder(BasicUNetEncoder):
         dimensions: Optional[int] = None,
         ndims: int = 5, 
         p: int = 1,
-        use_smooth: bool = True,
+        smoothing: bool = True,
     ):
         super().__init__(
             spatial_dims,
@@ -76,7 +76,7 @@ class SmoothUNetEncoder(BasicUNetEncoder):
             upsample,
             dimensions,
         )
-        self.use_smooth = use_smooth
+        self.smoothing = smoothing
         self.smooth = nn.ModuleList([SmoothLayer(ndims, p) for _ in range(4)])
         self.down = nn.ModuleList([self.down_1,
                                    self.down_2,
@@ -87,7 +87,7 @@ class SmoothUNetEncoder(BasicUNetEncoder):
         _x = [self.conv_0(x)]
         for i, (smooth, down) in enumerate(zip(self.smooth, self.down)):
             # print(f"x{i} : {_x[i].shape}")
-            if self.use_smooth: x_s = smooth(_x[i])
+            if self.smoothing: x_s = smooth(_x[i])
             _x.append(down(x_s))
 
         return _x
@@ -107,7 +107,7 @@ class SmoothUNetDecoder(BasicUNetDecoder):
         dimensions: Optional[int] = None,
         ndims: int = 5, 
         p: int = 1,
-        use_smooth: bool = True,
+        smoothing: bool = True,
     ):
         super().__init__(
             spatial_dims,
@@ -122,12 +122,12 @@ class SmoothUNetDecoder(BasicUNetDecoder):
             dimensions,
         )
 
-        self.use_smooth = use_smooth
+        self.smoothing = smoothing
         self.smooth = nn.ModuleList([SmoothLayer(ndims, p) for _ in range(4)])
         self.upcat = nn.ModuleList([self.upcat_4,
-                                   self.upcat_3,
-                                   self.upcat_2,
-                                   self.upcat_1])
+                                    self.upcat_3,
+                                    self.upcat_2,
+                                    self.upcat_1])
         
     def forward(self, x: torch.Tensor, t, embeddings=None, image=None):
         t_emb = get_timestep_embedding(t, 128)
@@ -158,16 +158,16 @@ class SmoothUNetDecoder(BasicUNetDecoder):
         if embeddings is not None:
             x4 += embeddings[4]
         
-        if self.use_smooth: x4 = self.smooth[0](x4)
+        if self.smoothing: x4 = self.smooth[0](x4)
         u4 = self.upcat[0](x4, x3, t_emb)
         
-        if self.use_smooth: u4 = self.smooth[1](u4)
+        if self.smoothing: u4 = self.smooth[1](u4)
         u3 = self.upcat[1](u4, x2, t_emb)
         
-        if self.use_smooth: u3 = self.smooth[2](u3)
+        if self.smoothing: u3 = self.smooth[2](u3)
         u2 = self.upcat[2](u3, x1, t_emb)
         
-        if self.use_smooth: u2 = self.smooth[3](u2)
+        if self.smoothing: u2 = self.smooth[3](u2)
         u1 = self.upcat[3](u2, x0, t_emb)
 
         logits = self.final_conv(u1)
@@ -192,9 +192,9 @@ class SmoothDiffUNet(DiffUNet):
             pretrained,
             mode,
         )
-        self.embed_model = SmoothUNetEncoder(3, 1, num_classes, [64, 64, 128, 256, 512, 64])
+        self.embed_model = SmoothUNetEncoder(3, 1, 2, [64, 64, 128, 256, 512, 64])
         self.model = SmoothUNetDecoder(3, num_classes+1, num_classes, [64, 64, 128, 256, 512, 64], 
-                                      act = ("LeakyReLU", {"negative_slope": 0.1, "inplace": False}))
+                                      act = ("LeakyReLU", {"negative_slope": 0.1, "inplace": False}), smoothing=False)
 
     def forward(self, image=None, x=None, pred_type=None, step=None, embedding=None):
         return super(SmoothDiffUNet, self).forward(image, x, pred_type, step, embedding)

@@ -77,7 +77,7 @@ class AMOSTester:
     def load_checkpoint(self, model_path):
         print(f"Checkpoint loaded from {model_path}.....")
         checkpoint = torch.load(model_path)
-        self.model.load_state_dict(checkpoint['model_state_dict'])
+        self.model.load_state_dict(checkpoint['model'])
         
     def get_input(self, batch):
         image = batch["image"]
