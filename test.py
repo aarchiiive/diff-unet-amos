@@ -1,13 +1,10 @@
 import os
-import pytz
 import glob
 import wandb
 import natsort
-import datetime
 from tqdm import tqdm
 from collections import OrderedDict
 
-import cv2
 import numpy as np
 
 # from medpy import metric
@@ -20,96 +17,13 @@ from monai.data import DataLoader
 from monai.utils import set_determinism
 from monai.inferers import SlidingWindowInferer
 
-from light_training.trainer import Trainer
-
-from guided_diffusion.gaussian_diffusion import get_named_beta_schedule, ModelMeanType, ModelVarType,LossType
-from guided_diffusion.respace import SpacedDiffusion, space_timesteps
-from guided_diffusion.resample import UniformSampler
-
-from unet.basic_unet_denose import BasicUNetDe
-from unet.basic_unet import BasicUNetEncoder
-
 from utils import get_amosloader
-
+from unet.diff_unet import DiffUNet
 from metric import *
-
 from dataset_path import data_dir
 
 set_determinism(123)
 
-
-def compute_uncer(pred_out):
-    pred_out = torch.sigmoid(pred_out)
-    pred_out[pred_out < 0.01] = 0.01
-    uncer_out = - pred_out * torch.log(pred_out)
-
-    return uncer_out
-
-
-class DiffUNet(nn.Module):
-    def __init__(self, 
-                 image_size,
-                 depth,
-                 num_classes,
-                 device,
-                 ):
-        super().__init__()
-        
-        if isinstance(image_size, tuple):
-            self.width = image_size[0]
-            self.height = image_size[1]
-        elif isinstance(image_size, int):
-            self.width = self.height = image_size
-            
-        self.depth = depth
-        self.num_classes = num_classes
-        self.device = torch.device(device)
-        
-        self.embed_model = BasicUNetEncoder(3, 1, 2, [64, 64, 128, 256, 512, 64])
-        self.model = BasicUNetDe(3, num_classes, num_classes-1, [64, 64, 128, 256, 512, 64], 
-                                act = ("LeakyReLU", {"negative_slope": 0.1, "inplace": False}))
-
-        betas = get_named_beta_schedule("linear", 1000)
-        self.diffusion = SpacedDiffusion(use_timesteps=space_timesteps(1000, [1000]),
-                                            betas=betas,
-                                            model_mean_type=ModelMeanType.START_X,
-                                            model_var_type=ModelVarType.FIXED_LARGE,
-                                            loss_type=LossType.MSE,
-                                            )
-
-        self.sample_diffusion = SpacedDiffusion(use_timesteps=space_timesteps(1000, [10]),
-                                            betas=betas,
-                                            model_mean_type=ModelMeanType.START_X,
-                                            model_var_type=ModelVarType.FIXED_LARGE,
-                                            loss_type=LossType.MSE,
-                                            )
-        self.sampler = UniformSampler(1000)
-        
-
-    def forward(self, image=None, x=None, pred_type=None, step=None, embedding=None):
-        if pred_type == "q_sample":
-            noise = torch.randn_like(x).to(x.device)
-            t, weight = self.sampler.sample(x.shape[0], x.device)
-            return self.diffusion.q_sample(x, t, noise=noise), t, noise
-
-        elif pred_type == "denoise":
-            embeddings = self.embed_model(image)
-            return self.model(x, t=step, image=image, embeddings=embeddings)
-
-        elif pred_type == "ddim_sample":
-            embeddings = self.embed_model(image)
-            sample_out = self.sample_diffusion.ddim_sample_loop(self.model, 
-                                                                (1, self.num_classes-1, self.depth, self.width, self.height), 
-                                                                model_kwargs={"image": image, "embeddings": embeddings})
-            sample_return = torch.zeros((1, self.num_classes, self.depth, self.width, self.height)).to(self.device)
-            all_samples = sample_out["all_samples"]
-            index = 0
-            
-            for sample in all_samples:
-                sample_return += sample.to(self.device)
-                index += 1
-
-            return sample_return
         
 class AMOSTester:
     def __init__(self, 
@@ -119,6 +33,7 @@ class AMOSTester:
                  class_names=None,
                  num_classes=16,
                  device="cpu", 
+                 wandb_name=None,
                  use_wandb=True
                 ):
         
@@ -139,9 +54,7 @@ class AMOSTester:
             self.width = self.height = image_size
         
         if self.use_wandb:
-            kst = pytz.timezone('Asia/Seoul')
-            current_time = datetime.datetime.now(kst).strftime("%Y%m%d_%H%M%S")
-            wandb.init(project="diff-unet-test", name=f"test_{current_time}", config=self.__dict__)
+            wandb.init(project="diff-unet-test", name=wandb_name, config=self.__dict__)
             self.table = wandb.Table(columns=["patient", "image", "dice"]+[n for n in self.class_names.values()])
             
         self.tensor2pil = transforms.ToPILImage()
@@ -177,7 +90,7 @@ class AMOSTester:
 
     def convert_labels(self, labels):
         labels_new = []
-        for i in range(1, self.num_classes):
+        for i in range(self.num_classes):
             labels_new.append(labels == i)
         
         labels_new = torch.cat(labels_new, dim=1)
@@ -338,14 +251,18 @@ if __name__ == "__main__":
                                4: "gall bladder", 5: "esophagus", 6: "liver", 7: "stomach", 
                                8: "arota", 9: "postcava", 10: "pancreas", 11: "right adrenal gland", 
                                12: "left adrenal gland", 13: "duodenum", 14: "bladder", 15: "prostate,uterus"})
-                
-    model_path = natsort.natsorted(glob.glob("logs/amos/model/*.pt"))[-1]
-    test_ds = get_amosloader(data_dir=data_dir, mode="test")
+    
+    model_path = natsort.natsorted(glob.glob("logs/amos_ver2/weights/*.pt"))[-1]
+    wandb_name = "amos_test"
+    use_cache = False
+    
     tester = AMOSTester(model_path=model_path,
-                         device="cuda:0",
-                         class_names=class_names,
-                         use_wandb=True)
-
+                        device="cuda:0",
+                        class_names=class_names,
+                        wandb_name=wandb_name,
+                        use_wandb=True)
+    
+    test_ds = get_amosloader(data_dir=data_dir, mode="test", use_cache=use_cache)
     v_mean, v_out = tester.test(test_ds)
 
     print(f"v_mean is {v_mean}")

@@ -49,7 +49,7 @@ def nonlinearity(x):
 class TwoConv(nn.Sequential):
     """two convolutions."""
 
-    @deprecated_arg(name="dim", new_name="spatial_dims", since="0.6", msg_suffix="Please use `spatial_dims` instead.")
+    # @deprecated_arg(name="dim", new_name="spatial_dims", since="0.6", msg_suffix="Please use `spatial_dims` instead.")
     def __init__(
         self,
         spatial_dims: int,
@@ -96,7 +96,7 @@ class TwoConv(nn.Sequential):
 class Down(nn.Sequential):
     """maxpooling downsampling and two convolutions."""
 
-    @deprecated_arg(name="dim", new_name="spatial_dims", since="0.6", msg_suffix="Please use `spatial_dims` instead.")
+    # @deprecated_arg(name="dim", new_name="spatial_dims", since="0.6", msg_suffix="Please use `spatial_dims` instead.")
     def __init__(
         self,
         spatial_dims: int,
@@ -137,7 +137,7 @@ class Down(nn.Sequential):
 class UpCat(nn.Module):
     """upsampling, concatenation with the encoder feature map, two convolutions"""
 
-    @deprecated_arg(name="dim", new_name="spatial_dims", since="0.6", msg_suffix="Please use `spatial_dims` instead.")
+    # @deprecated_arg(name="dim", new_name="spatial_dims", since="0.6", msg_suffix="Please use `spatial_dims` instead.")
     def __init__(
         self,
         spatial_dims: int,
@@ -222,10 +222,10 @@ class UpCat(nn.Module):
         return x
 
 
-class BasicUNetDe(nn.Module):
-    @deprecated_arg(
-        name="dimensions", new_name="spatial_dims", since="0.6", msg_suffix="Please use `spatial_dims` instead."
-    )
+class BasicUNetDecoder(nn.Module):
+    # @deprecated_arg(
+    #     name="dimensions", new_name="spatial_dims", since="0.6", msg_suffix="Please use `spatial_dims` instead."
+    # )
     def __init__(
         self,
         spatial_dims: int = 3,
@@ -292,11 +292,11 @@ class BasicUNetDe(nn.Module):
             spatial_dims = dimensions
 
         fea = ensure_tuple_rep(features, 6)
-        print(f"BasicUNet features: {fea}.")
+        # print(f"BasicUNet features: {fea}.")
         
         # timestep embedding
-        self.temb = nn.Module()
-        self.temb.dense = nn.ModuleList([
+        self.t_emb = nn.Module()
+        self.t_emb.dense = nn.ModuleList([
             torch.nn.Linear(128,
                             512),
             torch.nn.Linear(512,
@@ -328,38 +328,38 @@ class BasicUNetDe(nn.Module):
             A torch Tensor of "raw" predictions in shape
             ``(Batch, out_channels, dim_0[, dim_1, ..., dim_N])``.
         """
-        temb = get_timestep_embedding(t, 128)
-        temb = self.temb.dense[0](temb)
-        temb = nonlinearity(temb)
-        temb = self.temb.dense[1](temb)
+        t_emb = get_timestep_embedding(t, 128)
+        t_emb = self.t_emb.dense[0](t_emb)
+        temt_embb = nonlinearity(t_emb)
+        t_emb = self.t_emb.dense[1](t_emb)
 
         if image is not None :
             x = torch.cat([image, x], dim=1)
             
-        x0 = self.conv_0(x, temb)
+        x0 = self.conv_0(x, t_emb)
         if embeddings is not None:
             x0 += embeddings[0]
 
-        x1 = self.down_1(x0, temb)
+        x1 = self.down_1(x0, t_emb)
         if embeddings is not None:
             x1 += embeddings[1]
 
-        x2 = self.down_2(x1, temb)
+        x2 = self.down_2(x1, t_emb)
         if embeddings is not None:
             x2 += embeddings[2]
 
-        x3 = self.down_3(x2, temb)
+        x3 = self.down_3(x2, t_emb)
         if embeddings is not None:
             x3 += embeddings[3]
 
-        x4 = self.down_4(x3, temb)
+        x4 = self.down_4(x3, t_emb)
         if embeddings is not None:
             x4 += embeddings[4]
 
-        u4 = self.upcat_4(x4, x3, temb)
-        u3 = self.upcat_3(u4, x2, temb)
-        u2 = self.upcat_2(u3, x1, temb)
-        u1 = self.upcat_1(u2, x0, temb)
+        u4 = self.upcat_4(x4, x3, t_emb)
+        u3 = self.upcat_3(u4, x2, t_emb)
+        u2 = self.upcat_2(u3, x1, t_emb)
+        u1 = self.upcat_1(u2, x0, t_emb)
 
         logits = self.final_conv(u1)
         return logits

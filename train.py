@@ -1,8 +1,5 @@
 import os
-import pytz
 import wandb
-import argparse
-import datetime
 from tqdm import tqdm
 import numpy as np
 
@@ -14,122 +11,66 @@ from monai.data import DataLoader
 from monai.utils import set_determinism
 from monai.losses.dice import DiceLoss
 from monai.inferers import SlidingWindowInferer
-from monai.engines import SupervisedEvaluator
-from unet.basic_unet import BasicUNetEncoder
-from unet.basic_unet_denose import BasicUNetDe
 
 from light_training.evaluation.metric import dice, hausdorff_distance_95
 from light_training.utils.lr_scheduler import LinearWarmupCosineAnnealingLR
-from light_training.utils.files_helper import save_new_model_and_delete_last
-
-from guided_diffusion.gaussian_diffusion import get_named_beta_schedule, ModelMeanType, ModelVarType,LossType
-from guided_diffusion.respace import SpacedDiffusion, space_timesteps
-from guided_diffusion.resample import UniformSampler
+from light_training.utils.files_helper import save_model
 
 from metric import *
-from utils import get_amosloader
+from unet.diff_unet import DiffUNet
+from unet.smooth_diff_unet import SmoothDiffUNet
+from utils import get_amosloader, parse_args
 from dataset_path import data_dir
 
 set_determinism(123)
 
-
-class DiffUNet(nn.Module):
-    def __init__(self, 
-                 image_size,
-                 depth,
-                 num_classes,
-                 device,
-                 ):
-        super().__init__()
-        
-        if isinstance(image_size, tuple):
-            self.width = image_size[0]
-            self.height = image_size[1]
-        elif isinstance(image_size, int):
-            self.width = self.height = image_size
-            
-        self.depth = depth
-        self.num_classes = num_classes
-        self.device = torch.device(device)
-        
-        self.embed_model = BasicUNetEncoder(3, 1, 2, [64, 64, 128, 256, 512, 64])
-        self.model = BasicUNetDe(3, num_classes, num_classes-1, [64, 64, 128, 256, 512, 64], 
-                                act = ("LeakyReLU", {"negative_slope": 0.1, "inplace": False}))
-
-        betas = get_named_beta_schedule("linear", 1000)
-        self.diffusion = SpacedDiffusion(use_timesteps=space_timesteps(1000, [1000]),
-                                            betas=betas,
-                                            model_mean_type=ModelMeanType.START_X,
-                                            model_var_type=ModelVarType.FIXED_LARGE,
-                                            loss_type=LossType.MSE,
-                                            )
-
-        self.sample_diffusion = SpacedDiffusion(use_timesteps=space_timesteps(1000, [10]),
-                                            betas=betas,
-                                            model_mean_type=ModelMeanType.START_X,
-                                            model_var_type=ModelVarType.FIXED_LARGE,
-                                            loss_type=LossType.MSE,
-                                            )
-        self.sampler = UniformSampler(1000)
-        
-
-    def forward(self, image=None, x=None, pred_type=None, step=None, embedding=None):
-        if pred_type == "q_sample":
-            noise = torch.randn_like(x).to(x.device)
-            t, weight = self.sampler.sample(x.shape[0], x.device)
-            return self.diffusion.q_sample(x, t, noise=noise), t, noise
-
-        elif pred_type == "denoise":
-            embeddings = self.embed_model(image)
-            return self.model(x, t=step, image=image, embeddings=embeddings)
-
-        elif pred_type == "ddim_sample":
-            embeddings = self.embed_model(image)
-            sample_out = self.sample_diffusion.ddim_sample_loop(self.model, 
-                                                                (1, self.num_classes-1, self.depth, self.width,  self.height), 
-                                                                model_kwargs={"image": image, "embeddings": embeddings})
-            sample_out = sample_out["pred_xstart"].to(self.device)
-            return sample_out
         
 class AMOSTrainer:
-    def __init__(self, 
-                 max_epochs,
-                 batch_size, 
-                 image_size=256,
-                 depth=96,
-                 num_classes=16,
-                 device="cpu", 
-                 val_every=1, 
-                 save_freq=5,
-                 num_gpus=1, 
-                 logdir="logs", 
-                 resume_path=None,
-                 use_cache=True,
-                 use_wandb=True
-                ):
-        
-        self.val_every = val_every
-        self.save_freq = save_freq
+    def __init__(
+        self, 
+        model_name="diff_unet",
+        max_epochs=5000,
+        batch_size=10, 
+        image_size=256,
+        depth=96,
+        num_classes=16,
+        val_freq=1, 
+        save_freq=5,
+        device="cpu", 
+        num_gpus=1, 
+        num_workers=2,
+        loss_combine='plus',
+        log_dir="logs", 
+        resume_path=None,
+        pretrained=True,
+        use_cache=True,
+        use_wandb=True
+    ):
+        self.model_name = model_name
         self.max_epochs = max_epochs
         self.batch_size = batch_size
         self.image_size = image_size
         self.depth = depth
         self.num_classes = num_classes
-        self.ddp = num_gpus > 1
-        self.num_gpus = num_gpus
+        self.val_freq = val_freq
+        self.save_freq = save_freq
         self.device = torch.device(device)
-        self.local_rank = 0
-        self.batch_size = batch_size
-        self.logdir = os.path.join("logs", logdir)
-        self.weights_path = os.path.join(self.logdir, "weights")
-        self.auto_optim = True
+        self.num_gpus = num_gpus
+        self.num_workers = num_workers
+        self.loss_combine = loss_combine
+        self.log_dir = os.path.join("logs", log_dir)
+        self.resume_path = resume_path
+        self.pretrained = pretrained
         self.use_cache = use_cache
         self.use_wandb = use_wandb
         self.start_epoch = 0
         self.global_step = 0
         self.wandb_id = None
+        self.local_rank = 0
+        self.weights_path = os.path.join(self.log_dir, "weights")
+        self.auto_optim = True
         
-        os.makedirs(self.logdir, exist_ok=True)
+        os.makedirs(self.log_dir, exist_ok=True)
         os.makedirs(self.weights_path, exist_ok=True)
         
         if isinstance(image_size, tuple):
@@ -141,11 +82,21 @@ class AMOSTrainer:
         self.window_infer = SlidingWindowInferer(roi_size=[depth, image_size, image_size],
                                                  sw_batch_size=1,
                                                  overlap=0.5)
+
+        if model_name == "diff_unet":
+            _model = DiffUNet
+        elif model_name == "smooth_diff_unet":
+            _model = SmoothDiffUNet
+        else:
+            raise ValueError(f"Invalid model_type: {model_name}")
         
-        self.model = DiffUNet(image_size=image_size,
-                              depth=depth,
-                              num_classes=num_classes,
-                              device=device).to(self.device)
+        self.model = _model(image_size=image_size,
+                            depth=depth,
+                            num_classes=num_classes,
+                            device=device,
+                            pretrained=pretrained,
+                            mode="train").to(self.device)
+        
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=2e-4, weight_decay=1e-3)
         self.scheduler = LinearWarmupCosineAnnealingLR(self.optimizer,
                                                        warmup_epochs=100,
@@ -155,18 +106,18 @@ class AMOSTrainer:
             self.load_checkpoint(resume_path)
             
         if self.use_wandb:
-            # if resume_path is None:
-            #     wandb.init(project="diff-unet", 
-            #                name=f"{logdir}",
-            #                config=self.__dict__)
-            # else:
-            #     wandb.init(project="diff-unet", 
-            #                id=self.wandb_id, 
-            #                resume=True)
+            if resume_path is None:
+                wandb.init(project="diff-unet", 
+                           name=f"{log_dir}",
+                           config=self.__dict__)
+            else:
+                wandb.init(project="diff-unet", 
+                           id=self.wandb_id, 
+                           resume=True)
                 
-            wandb.init(project="diff-unet", 
-                        name=f"{logdir}",
-                        config=self.__dict__)
+            # wandb.init(project="diff-unet", 
+            #             name=f"{log_dir}",
+            #             config=self.__dict__)
                 
         if self.num_gpus > 1:
             self.model = DataParallel(self.model)
@@ -193,7 +144,7 @@ class AMOSTrainer:
         return DataLoader(dataset,
                           batch_size=batch_size,
                           shuffle=shuffle,
-                          num_workers=2)
+                          num_workers=self.num_workers)
 
     def train(self, train_dataset, val_dataset=None):
         set_determinism(1234 + self.local_rank)
@@ -202,7 +153,7 @@ class AMOSTrainer:
         if self.local_rank == 0:
             print(f"model parameters is {para * 4 / 1000 / 1000}M ")
         
-        os.makedirs(self.logdir, exist_ok=True)
+        os.makedirs(self.log_dir, exist_ok=True)
 
         train_loader = self.get_dataloader(train_dataset, shuffle=True, batch_size=self.batch_size)
         val_loader = self.get_dataloader(val_dataset, shuffle=False, batch_size=1, train=False)
@@ -213,7 +164,7 @@ class AMOSTrainer:
             
             val_outputs = []
             
-            if (epoch + 1) % self.val_every == 0:
+            if (epoch + 1) % self.val_freq == 0:
                 self.model.eval()
                 for idx, (batch, filename) in tqdm(enumerate(val_loader), total=len(val_loader)):
                     if isinstance(batch, dict):
@@ -299,7 +250,7 @@ class AMOSTrainer:
                 t.update(1)
                     
         if (epoch + 1) % self.save_freq == 0:
-            save_new_model_and_delete_last(self.model,
+            save_model(self.model,
                                            self.optimizer,
                                            self.scheduler, 
                                            self.epoch,
@@ -322,7 +273,8 @@ class AMOSTrainer:
         pred_xstart = torch.sigmoid(pred_xstart)
         loss_mse = self.mse(pred_xstart, label)
 
-        loss = loss_dice + loss_bce + loss_mse
+        if self.loss_combine == 'plus':
+            loss = loss_dice + loss_bce + loss_mse
 
         self.log("train_loss", loss.item(), step=self.global_step)
 
@@ -336,7 +288,7 @@ class AMOSTrainer:
 
         if mean_dice > self.best_mean_dice:
             self.best_mean_dice = mean_dice
-            save_new_model_and_delete_last(self.model,
+            save_model(self.model,
                                            self.optimizer,
                                            self.scheduler, 
                                            self.epoch,
@@ -358,7 +310,7 @@ class AMOSTrainer:
 
         dices = []
         hd = []
-        for i in range(self.num_classes-1):
+        for i in range(self.num_classes):
             pred_c = output[:, i]
             target_c = target[:, i]
 
@@ -378,7 +330,7 @@ class AMOSTrainer:
 
     def convert_labels(self, labels):
         labels_new = []
-        for i in range(1, self.num_classes):
+        for i in range(self.num_classes):
             labels_new.append(labels == i)
         
         labels_new = torch.cat(labels_new, dim=1)
@@ -388,53 +340,36 @@ class AMOSTrainer:
         if self.use_wandb:
             wandb.log({k: v}, step=step)
     
-def parse_args():
-    parser = argparse.ArgumentParser()
-
-    # Training settings
-    parser.add_argument("--logdir", type=str,
-                        help="Directory to store log files")
-    parser.add_argument("--max_epoch", type=int, default=50000,
-                        help="Maximum number of training epochs")
-    parser.add_argument("--batch_size", type=int, default=10,
-                        help="Batch size for training")
-    parser.add_argument("--device", type=str, default="cuda:0",
-                        help="Device for training (e.g., 'cuda:0', 'cpu')")
-    parser.add_argument("--val_every", type=int, default=400,
-                        help="Validation frequency (number of iterations)")
-    parser.add_argument("--num_gpus", type=int, default=5,
-                        help="Number of GPUs to use for training")
-    parser.add_argument("--resume_path", type=str, default="logs/amos_ver2/weights/epoch_349.pt",
-                        help="Path to the checkpoint for resuming training")
-    parser.add_argument("--use_wandb", action="store_true", default=True, # default=False,
-                        help="Use Weights & Biases for logging")
-    parser.add_argument("--use_cache", action="store_true", default=True, # default=False,
-                        help="Enable caching")
-
-    args = parser.parse_args()
-    return args
 
 if __name__ == "__main__":
     args = parse_args()
 
-    logdir = args.logdir
+    log_dir = args.log_dir
+    model_name = args.model_name
     max_epoch = args.max_epoch
     batch_size = args.batch_size
+    num_workers = args.num_workers
+    loss_combine = args.loss_combine
     device = args.device
-    val_every = args.val_every
+    val_freq = args.val_freq
     num_gpus = args.num_gpus
     resume_path = args.resume_path
+    pretrained = args.pretrained
     use_wandb = args.use_wandb
     use_cache = args.use_cache
     # resume_path = "logs/amos_remastered/model/epoch_24.pt"
 
-    trainer = AMOSTrainer(max_epochs=max_epoch,
+    trainer = AMOSTrainer(model_name=model_name,
+                          max_epochs=max_epoch,
                           batch_size=batch_size,
                           device=device,
-                          logdir=logdir,
-                          val_every=val_every,
+                          val_freq=val_freq,
                           num_gpus=num_gpus,
+                          num_workers=num_workers,
+                          loss_combine=loss_combine,
+                          log_dir=log_dir,
                           resume_path=resume_path,
+                          pretrained=pretrained,
                           use_wandb=use_wandb,
                           use_cache=use_cache)
 

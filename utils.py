@@ -1,8 +1,43 @@
 import glob 
+import argparse
 
 from monai import transforms
 
 from dataset.amosloader import AMOSDataset
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+
+    # Training settings
+    parser.add_argument("--log_dir", type=str,
+                        help="Directory to store log files")
+    parser.add_argument("--model_name", type=str, default="smooth_diff_unet",
+                        help="Name of the model type")
+    parser.add_argument("--max_epoch", type=int, default=50000,
+                        help="Maximum number of training epochs")
+    parser.add_argument("--batch_size", type=int, default=10,
+                        help="Batch size for training")
+    parser.add_argument("--num_workers", type=int, default=2,
+                        help="Number of parallel workers for dataloader")
+    parser.add_argument("--loss_combine", type=str, default='plus',
+                        help="Method for combining multiple losses")
+    parser.add_argument("--device", type=str, default="cuda:0",
+                        help="Device for training (e.g., 'cuda:0', 'cpu')")
+    parser.add_argument("--val_freq", type=int, default=400,
+                        help="Validation frequency (number of iterations)")
+    parser.add_argument("--num_gpus", type=int, default=5,
+                        help="Number of GPUs to use for training")
+    parser.add_argument("--resume_path", type=str, default=None,
+                        help="Path to the checkpoint for resuming training")
+    parser.add_argument("--pretrained", action="store_true", default=False, # default=False,
+                        help="Use pretrained weights")
+    parser.add_argument("--use_wandb", action="store_true", default=True, # default=False,
+                        help="Use Weights & Biases for logging")
+    parser.add_argument("--use_cache", action="store_true", default=True, # default=False,
+                        help="Enable caching")
+
+    args = parser.parse_args()
+    return args
 
 
 def get_amosloader(data_dir, spatial_size=96, num_samples=1, mode="train", use_cache=True):
