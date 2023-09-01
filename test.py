@@ -13,7 +13,6 @@ from utils import parse_args, get_amosloader
 from dataset_path import data_dir
 
 set_determinism(123)
-
         
 class AMOSTester(Engine):
     def __init__(
@@ -70,39 +69,41 @@ class AMOSTester(Engine):
         if self.use_wandb:
             vis_data = self.tensor2images(image, label, output, int(d * 0.75)) # put appropriate index
 
-        output = torch.nn.functional.interpolate(output, mode="nearest", size=(d, w, h))
-        output = output.cpu().numpy()
-        target = label.cpu().numpy()
+        output = torch.nn.functional.interpolate(output, mode="nearest", size=(d, w, h)) # idea
+        # output = output.cpu().numpy()
+        # target = label.cpu().numpy()
 
         dices = OrderedDict({v : 0 for v in self.class_names.values()})
-        # hd = []
+        hd = []
+        
         for i in range(self.num_classes):
             pred = output[:, i]
-            gt = target[:, i]
+            gt = label[:, i]
 
             if pred.sum() > 0 and gt.sum() > 0:
-                dice = dice_coef(pred, gt)
-                # hd95 = hd95(pred, gt)
-                # dice = metric.binary.dc(pred, gt)
-                # hd95 = metric.binary.hd95(pred, gt)
+                dice = dice_score(pred, gt, i)
+                hd95 = hd95_score(pred, gt, i)
             elif pred.sum() > 0 and gt.sum()==0:
                 dice = 1
-                # hd95 = 0
+                hd95 = 0
             else:
                 dice = 0
-                # hd95 = 0
+                hd95 = 0
 
             dices[self.class_names[i]] = dice
-            # hd.append(hd95)
+            hd.append(hd95)
         
         all_m = []
         for d in dices:
             all_m.append(d)
-        # for h in hd:
-        #     all_m.append(h)
+        for h in hd:
+            all_m.append(h)
         
         mean_dice = sum(dices.values()) / self.num_classes
-        # print(f"mean dice : {mean_dice:.4f}", )
+        mean_hd95 = sum(hd) / self.num_classes
+        
+        print(f"mean_dice : {mean_dice:.4f}")
+        print(f"mean_hd95 : {mean_hd95:.4f}")
         
         if self.use_wandb:
             self.log_plot(vis_data, mean_dice, dices, filename)

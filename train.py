@@ -75,7 +75,23 @@ class AMOSTrainer(Engine):
         
         os.makedirs(self.log_dir, exist_ok=True)
         os.makedirs(self.weights_path, exist_ok=True)
-
+                
+        self.model = self.load_model()
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=2e-4, weight_decay=1e-3)
+        self.scheduler = LinearWarmupCosineAnnealingLR(self.optimizer,
+                                                       warmup_epochs=100,
+                                                       max_epochs=max_epochs)
+        self.ce = nn.CrossEntropyLoss() 
+        self.mse = nn.MSELoss()
+        self.bce = nn.BCEWithLogitsLoss()
+        self.dice_loss = DiceLoss(sigmoid=True)
+        
+        if model_path is not None:
+            self.load_checkpoint(model_path)
+                
+        if self.num_gpus > 1:
+            self.model = DataParallel(self.model)
+            
         if use_wandb:
             if model_path is None:
                 if wandb_name is None: wandb_name = log_dir
@@ -86,23 +102,6 @@ class AMOSTrainer(Engine):
                 wandb.init(project="diff-unet", 
                            id=self.wandb_id, 
                            resume=True)
-                
-        self.model = self.load_model()
-        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=2e-4, weight_decay=1e-3)
-        self.scheduler = LinearWarmupCosineAnnealingLR(self.optimizer,
-                                                       warmup_epochs=100,
-                                                       max_epochs=max_epochs)
-
-        if model_path is not None:
-            self.load_checkpoint(model_path)
-                
-        if self.num_gpus > 1:
-            self.model = DataParallel(self.model)
-            
-        self.ce = nn.CrossEntropyLoss() 
-        self.mse = nn.MSELoss()
-        self.bce = nn.BCEWithLogitsLoss()
-        self.dice_loss = DiceLoss(sigmoid=True)
         
     def load_checkpoint(self, model_path):
         checkpoint = torch.load(model_path)

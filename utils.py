@@ -52,9 +52,9 @@ def parse_args(mode):
                             help="Validation frequency (number of iterations)")
         parser.add_argument("--num_gpus", type=int, default=5,
                             help="Number of GPUs to use for training")
-        parser.add_argument("--resume_path", type=str, default=None,
-                            help="Path to the checkpoint for resuming training")
-        parser.add_argument("--use_cache", action="store_true", default=True, # default=False,
+        parser.add_argument("--model_path", type=str, default=None,
+                            help="Path to the checkpoint for pretrained weights")
+        parser.add_argument("--use_cache", action="store_true", default=False, # default=False,
                             help="Enable caching")
     elif mode == "test":
         # Testing settings
