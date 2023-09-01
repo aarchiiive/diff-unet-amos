@@ -38,6 +38,7 @@ class Engine:
         self.use_amp = use_amp
         self.use_wandb = use_wandb
         self.mode = mode
+        self.global_step = 0
         self.best_mean_dice = 0
         
         if isinstance(image_size, tuple):

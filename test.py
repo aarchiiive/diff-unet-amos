@@ -1,13 +1,10 @@
 import os
 import glob
 import wandb
+import torch 
 from tqdm import tqdm
 from collections import OrderedDict
-# from medpy import metric
 
-import torch 
-
-from monai.data import DataLoader
 from monai.utils import set_determinism
 
 from metric import *

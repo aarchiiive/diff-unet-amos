@@ -10,13 +10,11 @@ from torch.nn.parallel import DataParallel
 from monai.utils import set_determinism
 from monai.losses.dice import DiceLoss
 
-
-from light_training.evaluation.metric import dice, hausdorff_distance_95
 from light_training.utils.lr_scheduler import LinearWarmupCosineAnnealingLR
 
 from metric import *
 from engine import Engine
-from utils import parse_args, load_model, save_model, get_amosloader
+from utils import parse_args, save_model, get_amosloader
 from dataset_path import data_dir
 
 set_determinism(123)
@@ -70,7 +68,6 @@ class AMOSTrainer(Engine):
         self.use_cache = use_cache
         
         self.start_epoch = 0
-        self.global_step = 0
         self.wandb_id = None
         self.local_rank = 0
         self.weights_path = os.path.join(self.log_dir, "weights")
@@ -118,15 +115,12 @@ class AMOSTrainer(Engine):
         self.wandb_id = checkpoint['id']
         
         print(f"Checkpoint loaded from {model_path}")
-        
-    
 
     def train(self, train_dataset, val_dataset=None):
         set_determinism(1234 + self.local_rank)
         print(f"check model parameter: {next(self.model.parameters()).sum()}")
         para = sum([np.prod(list(p.size())) for p in self.model.parameters()])
-        if self.local_rank == 0:
-            print(f"model parameters is {para * 4 / 1000 / 1000}M ")
+        print(f"model parameters is {para * 4 / 1000 / 1000}M ")
         
         os.makedirs(self.log_dir, exist_ok=True)
 
@@ -180,6 +174,7 @@ class AMOSTrainer(Engine):
     def train_epoch(self, loader, epoch):
         self.model.train()
         with tqdm(total=len(loader)) as t:
+            running_loss = 0
             for idx, (batch, filename) in enumerate(loader):
                 self.global_step += 1
                 self.optimizer.zero_grad()
@@ -193,7 +188,8 @@ class AMOSTrainer(Engine):
                 
                 for param in self.model.parameters(): param.grad = None
                 loss = self.training_step(batch)
-
+                running_loss += loss.item()
+                
                 if self.auto_optim:
                     if self.use_amp:
                         self.scaler.scale(loss).backward()
@@ -209,6 +205,8 @@ class AMOSTrainer(Engine):
 
                     t.set_postfix(loss=loss.item(), lr=lr)
                 t.update(1)
+                
+            self.log("loss", running_loss / len(loader), epoch)
                     
         if (epoch + 1) % self.save_freq == 0:
             save_model(self.model,
@@ -237,15 +235,11 @@ class AMOSTrainer(Engine):
         if self.loss_combine == 'plus':
             loss = loss_dice + loss_bce + loss_mse
 
-        self.log("train_loss", loss.item())
-
         return loss 
     
     def validation_end(self, mean_val_outputs, epoch):
         dices = mean_val_outputs
         mean_dice = sum(dices) / len(dices)
-
-        self.log("mean_dice", mean_dice, step=self.epoch)
 
         if mean_dice > self.best_mean_dice:
             self.best_mean_dice = mean_dice
