@@ -1,6 +1,7 @@
 import os
 import glob 
 import argparse
+from prettytable import PrettyTable
 
 import torch
 import torch.nn as nn
@@ -8,44 +9,77 @@ import torch.nn as nn
 from monai import transforms
 
 from dataset.amosloader import AMOSDataset
+from unet.diff_unet import DiffUNet
+from unet.smooth_diff_unet import SmoothDiffUNet
 
-def parse_args():
+
+def parse_args(mode):
     parser = argparse.ArgumentParser()
-
-    # Training settings
-    parser.add_argument("--log_dir", type=str,
-                        help="Directory to store log files")
+    
+    # Common settings
     parser.add_argument("--model_name", type=str, default="smooth_diff_unet",
                         help="Name of the model type")
-    parser.add_argument("--max_epochs", type=int, default=50000,
-                        help="Maximum number of training epochs")
-    parser.add_argument("--batch_size", type=int, default=10,
-                        help="Batch size for training")
-    parser.add_argument("--num_workers", type=int, default=2,
-                        help="Number of parallel workers for dataloader")
-    parser.add_argument("--loss_combine", type=str, default='plus',
-                        help="Method for combining multiple losses")
+    parser.add_argument("--image_size", type=int, default=256, 
+                        help="Image size")
+    parser.add_argument("--depth", type=int, default=96, 
+                        help="Depth parameter")
+    parser.add_argument("--num_classes", type=int, default=16, 
+                        help="Number of classes")
     parser.add_argument("--device", type=str, default="cuda:0",
                         help="Device for training (e.g., 'cuda:0', 'cpu')")
-    parser.add_argument("--val_freq", type=int, default=400,
-                        help="Validation frequency (number of iterations)")
-    parser.add_argument("--num_gpus", type=int, default=5,
-                        help="Number of GPUs to use for training")
-    parser.add_argument("--resume_path", type=str, default=None,
-                        help="Path to the checkpoint for resuming training")
-    parser.add_argument("--pretrained", action="store_true", default=False, # default=False,
-                        help="Use pretrained weights")
-    parser.add_argument("--use_amp", action="store_true", default=False, # default=False,
-                        help="Enable Automatic Mixed Precision (AMP)")
-    parser.add_argument("--use_cache", action="store_true", default=False, # default=False,
-                        help="Enable caching")
-    parser.add_argument("--use_wandb", action="store_true", default=False, # default=False,
+    parser.add_argument("--pretrained", action="store_true", 
+                        help="Use pretrained model")
+    parser.add_argument("--wandb_name", type=str, default=None, 
+                        help="Name for WandB logging")
+    parser.add_argument("--use_wandb", action="store_true", default=True, # default=False,
                         help="Use Weights & Biases for logging")
+    parser.add_argument("--use_amp", action="store_true", default=True, # default=False,
+                        help="Enable Automatic Mixed Precision (AMP)")
     
-
+    if mode == "train":
+        # Training settings
+        parser.add_argument("--log_dir", type=str,
+                            help="Directory to store log files")
+        parser.add_argument("--max_epochs", type=int, default=50000,
+                            help="Maximum number of training epochs")
+        parser.add_argument("--batch_size", type=int, default=15,
+                            help="Batch size for training")
+        parser.add_argument("--num_workers", type=int, default=2,
+                            help="Number of parallel workers for dataloader")
+        parser.add_argument("--loss_combine", type=str, default='plus',
+                            help="Method for combining multiple losses")
+        parser.add_argument("--val_freq", type=int, default=400,
+                            help="Validation frequency (number of iterations)")
+        parser.add_argument("--num_gpus", type=int, default=5,
+                            help="Number of GPUs to use for training")
+        parser.add_argument("--resume_path", type=str, default=None,
+                            help="Path to the checkpoint for resuming training")
+        parser.add_argument("--use_cache", action="store_true", default=True, # default=False,
+                            help="Enable caching")
+    elif mode == "test":
+        # Testing settings
+        parser.add_argument("--model_path", type=str, default=None,
+                            help="Path to the saved model")
+    
     args = parser.parse_args()
+    
+    table = PrettyTable(["Argument", "Value"])
+    for arg, value in args.__dict__.items():
+        table.add_row([arg, value])
+    
+    print(table)
+    
     return args
 
+def load_model(model_name, **kwargs):
+    if model_name == "diff_unet":
+        model = DiffUNet(**kwargs)
+    elif model_name == "smooth_diff_unet":
+        model = SmoothDiffUNet(**kwargs)
+    else:
+        raise ValueError(f"Invalid model_type: {model_name}")
+
+    return model
 
 def save_model(model, optimizer, scheduler, epoch, global_step, best_mean_dice, id, save_path, delete_symbol=None):
     save_dir = os.path.dirname(save_path)
@@ -70,7 +104,6 @@ def save_model(model, optimizer, scheduler, epoch, global_step, best_mean_dice, 
     torch.save(state, save_path)
 
     print(f"model is saved in {save_path}")
-
 
 def get_amosloader(data_dir, spatial_size=96, num_samples=1, mode="train", use_cache=True):
     data = {

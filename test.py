@@ -1,100 +1,65 @@
 import os
 import glob
 import wandb
-import natsort
 from tqdm import tqdm
 from collections import OrderedDict
-
-import numpy as np
-
 # from medpy import metric
 
 import torch 
-import torch.nn as nn 
-from torchvision import transforms
 
 from monai.data import DataLoader
 from monai.utils import set_determinism
-from monai.inferers import SlidingWindowInferer
 
-from utils import get_amosloader
-from unet.diff_unet import DiffUNet
 from metric import *
+from engine import Engine
+from utils import parse_args, get_amosloader
 from dataset_path import data_dir
 
 set_determinism(123)
 
         
-class AMOSTester:
-    def __init__(self, 
-                 model_path,
-                 image_size=256,
-                 depth=96,
-                 class_names=None,
-                 num_classes=16,
-                 device="cpu", 
-                 wandb_name=None,
-                 use_wandb=True
-                ):
-        
-        self.model_path = model_path
-        self.device = torch.device(device)
-        self.use_wandb = use_wandb
-        
-        if class_names is not None:
-            self.class_names = class_names
-            self.num_classes = len(class_names)
-        else:
-            self.num_classes = num_classes
-        
-        if isinstance(image_size, tuple):
-            self.width = image_size[0]
-            self.height = image_size[1]
-        elif isinstance(image_size, int):
-            self.width = self.height = image_size
-        
-        if self.use_wandb:
-            wandb.init(project="diff-unet-test", name=wandb_name, config=self.__dict__)
-            self.table = wandb.Table(columns=["patient", "image", "dice"]+[n for n in self.class_names.values()])
-            
-        self.tensor2pil = transforms.ToPILImage()
-            
-        self.window_infer = SlidingWindowInferer(roi_size=[depth, image_size, image_size],
-                                                 sw_batch_size=1,
-                                                 overlap=0.6,
-                                                 device=device,
-                                                 sw_device=device)
-        
-        self.model = DiffUNet(image_size=image_size,
-                              depth=depth,
-                              num_classes=num_classes,
-                              device=device).to(self.device)
-        
-        self.best_mean_dice = 0.0
-        
+class AMOSTester(Engine):
+    def __init__(
+        self, 
+        model_path,
+        model_name="smooth_diff_unet",
+        image_size=256,
+        depth=96,
+        class_names=None,
+        num_classes=16,
+        device="cpu", 
+        wandb_name=None,
+        pretrained=True,
+        use_amp=True,
+        use_wandb=True
+    ):
+        super().__init__(
+            model_name=model_name, 
+            image_size=image_size,
+            depth=depth,
+            class_names=class_names,
+            num_classes=num_classes, 
+            device=device,
+            model_path=model_path,
+            wandb_name=wandb_name,
+            pretrained=pretrained,
+            use_amp=use_amp,
+            use_wandb=use_wandb,
+            mode="test",
+        )
+        if use_wandb:
+            wandb.init(project="diff-unet-test", name=self.wandb_name, config=self.__dict__)
+
+        self.model = self.load_model()
         self.load_checkpoint(model_path)
 
     def load_checkpoint(self, model_path):
         print(f"Checkpoint loaded from {model_path}.....")
         checkpoint = torch.load(model_path)
-        self.model.load_state_dict(checkpoint['model'])
-        
-    def get_input(self, batch):
-        image = batch["image"]
-        label = batch["raw_label"]
-        
-        label = self.convert_labels(label)
-
-        label = label.float()
-        return image, label
-
-    def convert_labels(self, labels):
-        labels_new = []
-        for i in range(self.num_classes):
-            labels_new.append(labels == i)
-        
-        labels_new = torch.cat(labels_new, dim=1)
-        return labels_new
+        if 'model' in checkpoint.keys():
+            self.model.load_state_dict(checkpoint['model'])
+        elif 'model_state_dict' in checkpoint.keys():
+            self.model.load_state_dict(checkpoint['model_state_dict'])
 
     def validation_step(self, batch, filename):
         image, label = self.get_input(batch)    
@@ -114,7 +79,7 @@ class AMOSTester:
 
         dices = OrderedDict({v : 0 for v in self.class_names.values()})
         # hd = []
-        for i in range(self.num_classes-1):
+        for i in range(self.num_classes):
             pred = output[:, i]
             gt = target[:, i]
 
@@ -150,9 +115,8 @@ class AMOSTester:
     
     def test(self, val_dataset):
         try:
-            val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False)
+            val_loader = self.get_dataloader(val_dataset, batch_size=1, shuffle=False)
             val_outputs = []
-            
             self.model.eval()
             
             for idx, (batch, filename) in tqdm(enumerate(val_loader), total=len(val_loader)):
@@ -207,44 +171,6 @@ class AMOSTester:
         except:
             if self.use_wandb: wandb.log({"table": self.table})    
     
-    def get_numpy_image(self, t, index, is_label=False):
-        if is_label: t = torch.argmax(t, dim=1)
-        else: t = t.squeeze(0) * 255
-        t = t[:, index, ...].to(torch.uint8)
-        t = t.cpu().numpy()
-        t = np.transpose(t, (1, 2, 0))
-        if is_label: t = t[:, :, 0]
-  
-        return t
-    
-    def tensor2images(self, image, label, output, index=0):
-        return {
-            "image" : self.get_numpy_image(image, index),
-            "label" : self.get_numpy_image(label, index, is_label=True),
-            "output" : self.get_numpy_image(output, index, is_label=True),
-        }
-    
-    def log(self, k, v, step=None):
-        wandb.log({k: v}, step=step)
-        
-    def log_plot(self, vis_data, mean_dice, dices, filename):
-        patient = os.path.basename(filename).split(".")[0]
-        
-        plot = wandb.Image(
-            vis_data["image"],
-            masks={
-                "prediction" : {
-                    "mask_data" : vis_data["output"],
-                    "class_labels" : self.class_names 
-                },
-                "label" : {
-                    "mask_data" : vis_data["label"],
-                    "class_labels" : self.class_names 
-                }
-            },
-        )
-        
-        self.table.add_data(*([patient, plot, mean_dice]+[d for d in dices.values()]))
         
 if __name__ == "__main__":
     class_names = OrderedDict({0: "background", 1: "spleen", 2: "right kidney", 3: "left kidney", 
@@ -252,17 +178,8 @@ if __name__ == "__main__":
                                8: "arota", 9: "postcava", 10: "pancreas", 11: "right adrenal gland", 
                                12: "left adrenal gland", 13: "duodenum", 14: "bladder", 15: "prostate,uterus"})
     
-    model_path = natsort.natsorted(glob.glob("logs/amos_ver2/weights/*.pt"))[-1]
-    wandb_name = "amos_test"
-    use_cache = False
+    args = parse_args("test")
     
-    tester = AMOSTester(model_path=model_path,
-                        device="cuda:0",
-                        class_names=class_names,
-                        wandb_name=wandb_name,
-                        use_wandb=True)
-    
-    test_ds = get_amosloader(data_dir=data_dir, mode="test", use_cache=use_cache)
+    tester = AMOSTester(**vars(args), class_names=class_names)
+    test_ds = get_amosloader(data_dir=data_dir, mode="test", use_cache=args.use_cache)
     v_mean, v_out = tester.test(test_ds)
-
-    print(f"v_mean is {v_mean}")

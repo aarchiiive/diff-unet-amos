@@ -7,24 +7,22 @@ import torch
 import torch.nn as nn 
 from torch.nn.parallel import DataParallel
 
-from monai.data import DataLoader
 from monai.utils import set_determinism
 from monai.losses.dice import DiceLoss
-from monai.inferers import SlidingWindowInferer
+
 
 from light_training.evaluation.metric import dice, hausdorff_distance_95
 from light_training.utils.lr_scheduler import LinearWarmupCosineAnnealingLR
 
 from metric import *
-from unet.diff_unet import DiffUNet
-from unet.smooth_diff_unet import SmoothDiffUNet
-from utils import get_amosloader, save_model, parse_args
+from engine import Engine
+from utils import parse_args, load_model, save_model, get_amosloader
 from dataset_path import data_dir
 
 set_determinism(123)
 
         
-class AMOSTrainer:
+class AMOSTrainer(Engine):
     def __init__(
         self, 
         model_name="diff_unet",
@@ -40,30 +38,37 @@ class AMOSTrainer:
         num_workers=2,
         loss_combine='plus',
         log_dir="logs", 
-        resume_path=None,
+        model_path=None,
+        wandb_name=None,
         pretrained=True,
         use_amp=True,
         use_cache=True,
         use_wandb=True
     ):
-        self.model_name = model_name
+        super().__init__(
+            model_name=model_name, 
+            image_size=image_size,
+            depth=depth,
+            num_classes=num_classes, 
+            device=device,
+            num_workers=num_workers,
+            model_path=model_path,
+            wandb_name=wandb_name,
+            pretrained=pretrained,
+            use_amp=use_amp,
+            use_wandb=use_wandb,
+            mode="train",
+        )
         self.max_epochs = max_epochs
         self.batch_size = batch_size
-        self.image_size = image_size
-        self.depth = depth
-        self.num_classes = num_classes
         self.val_freq = val_freq
         self.save_freq = save_freq
-        self.device = torch.device(device)
         self.num_gpus = num_gpus
         self.num_workers = num_workers
         self.loss_combine = loss_combine
         self.log_dir = os.path.join("logs", log_dir)
-        self.resume_path = resume_path
-        self.pretrained = pretrained
-        self.use_amp = use_amp
         self.use_cache = use_cache
-        self.use_wandb = use_wandb
+        
         self.start_epoch = 0
         self.global_step = 0
         self.wandb_id = None
@@ -73,60 +78,37 @@ class AMOSTrainer:
         
         os.makedirs(self.log_dir, exist_ok=True)
         os.makedirs(self.weights_path, exist_ok=True)
-        
-        if isinstance(image_size, tuple):
-            self.width = image_size[0]
-            self.height = image_size[1]
-        elif isinstance(image_size, int):
-            self.width = self.height = image_size
 
-        self.window_infer = SlidingWindowInferer(roi_size=[depth, image_size, image_size],
-                                                 sw_batch_size=1,
-                                                 overlap=0.5)
-
-        if model_name == "diff_unet":
-            _model = DiffUNet
-        elif model_name == "smooth_diff_unet":
-            _model = SmoothDiffUNet
-        else:
-            raise ValueError(f"Invalid model_type: {model_name}")
-        
-        self.model = _model(image_size=image_size,
-                            depth=depth,
-                            num_classes=num_classes,
-                            device=device,
-                            pretrained=pretrained,
-                            mode="train").to(self.device)
-        self.scaler = torch.cuda.amp.GradScaler()
-        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=2e-4, weight_decay=1e-3)
-        self.scheduler = LinearWarmupCosineAnnealingLR(self.optimizer,
-                                                       warmup_epochs=100,
-                                                       max_epochs=max_epochs)
-
-        if resume_path is not None:
-            self.load_checkpoint(resume_path)
-            
-        if self.use_wandb:
-            if resume_path is None:
+        if use_wandb:
+            if model_path is None:
+                if wandb_name is None: wandb_name = log_dir
                 wandb.init(project="diff-unet", 
-                           name=f"{log_dir}",
+                           name=f"{wandb_name}",
                            config=self.__dict__)
             else:
                 wandb.init(project="diff-unet", 
                            id=self.wandb_id, 
                            resume=True)
                 
+        self.model = self.load_model()
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=2e-4, weight_decay=1e-3)
+        self.scheduler = LinearWarmupCosineAnnealingLR(self.optimizer,
+                                                       warmup_epochs=100,
+                                                       max_epochs=max_epochs)
+
+        if model_path is not None:
+            self.load_checkpoint(model_path)
+                
         if self.num_gpus > 1:
             self.model = DataParallel(self.model)
             
-        self.best_mean_dice = 0.0
         self.ce = nn.CrossEntropyLoss() 
         self.mse = nn.MSELoss()
         self.bce = nn.BCEWithLogitsLoss()
         self.dice_loss = DiceLoss(sigmoid=True)
         
-    def load_checkpoint(self, checkpoint_path):
-        checkpoint = torch.load(checkpoint_path)
+    def load_checkpoint(self, model_path):
+        checkpoint = torch.load(model_path)
         self.model.load_state_dict(checkpoint['model'])
         self.optimizer.load_state_dict(checkpoint['optimizer'])
         self.scheduler.load_state_dict(checkpoint['scheduler'])
@@ -135,13 +117,9 @@ class AMOSTrainer:
         self.best_mean_dice = checkpoint['best_mean_dice']
         self.wandb_id = checkpoint['id']
         
-        print(f"Checkpoint loaded from {checkpoint_path}")
+        print(f"Checkpoint loaded from {model_path}")
         
-    def get_dataloader(self, dataset, shuffle=False, batch_size=1, train=True):
-        return DataLoader(dataset,
-                          batch_size=batch_size,
-                          shuffle=shuffle,
-                          num_workers=self.num_workers)
+    
 
     def train(self, train_dataset, val_dataset=None):
         set_determinism(1234 + self.local_rank)
@@ -152,8 +130,8 @@ class AMOSTrainer:
         
         os.makedirs(self.log_dir, exist_ok=True)
 
-        train_loader = self.get_dataloader(train_dataset, shuffle=True, batch_size=self.batch_size)
-        val_loader = self.get_dataloader(val_dataset, shuffle=False, batch_size=1, train=False)
+        train_loader = self.get_dataloader(train_dataset, batch_size=self.batch_size, shuffle=True)
+        val_loader = self.get_dataloader(val_dataset, batch_size=1, shuffle=False)
             
         for epoch in range(self.start_epoch, self.max_epochs):
             self.epoch = epoch 
@@ -166,20 +144,10 @@ class AMOSTrainer:
                 if (epoch + 1) % self.val_freq == 0:
                     self.model.eval()
                     for idx, (batch, filename) in tqdm(enumerate(val_loader), total=len(val_loader)):
-                        if isinstance(batch, dict):
-                            batch = {
-                                x: batch[x].to(self.device)
-                                for x in batch if isinstance(batch[x], torch.Tensor)
-                            }
-                        elif isinstance(batch, list) :
-                            batch = [x.to(self.device) for x in batch if isinstance(x, torch.Tensor)]
-
-                        elif isinstance(batch, torch.Tensor):
-                            batch = batch.to(self.device)
-                        
-                        else:
-                            print("not support data type")
-                            exit(0)
+                        batch = {
+                            x: batch[x].to(self.device)
+                            for x in batch if isinstance(batch[x], torch.Tensor)
+                        }
 
                         with torch.no_grad():
                             val_out = self.validation_step(batch)
@@ -189,24 +157,23 @@ class AMOSTrainer:
 
                     val_outputs = torch.tensor(val_outputs)
 
-                    if self.local_rank == 0:
-                        num_val = len(val_outputs[0])
-                        length = [0.0 for i in range(num_val)]
-                        v_sum = [0.0 for i in range(num_val)]
+                    num_val = len(val_outputs[0])
+                    length = [0.0 for i in range(num_val)]
+                    v_sum = [0.0 for i in range(num_val)]
 
-                        for v in val_outputs:
-                            for i in range(num_val):
-                                if not torch.isnan(v[i]):
-                                    v_sum[i] += v[i]
-                                    length[i] += 1
-
+                    for v in val_outputs:
                         for i in range(num_val):
-                            if length[i] == 0:
-                                v_sum[i] = 0
-                            else :
-                                v_sum[i] = v_sum[i] / length[i]
+                            if not torch.isnan(v[i]):
+                                v_sum[i] += v[i]
+                                length[i] += 1
 
-                        self.validation_end(mean_val_outputs=v_sum, epoch=epoch)
+                    for i in range(num_val):
+                        if length[i] == 0:
+                            v_sum[i] = 0
+                        else :
+                            v_sum[i] = v_sum[i] / length[i]
+
+                    self.validation_end(mean_val_outputs=v_sum, epoch=epoch)
                 
                 self.model.train()
 
@@ -216,26 +183,13 @@ class AMOSTrainer:
             for idx, (batch, filename) in enumerate(loader):
                 self.global_step += 1
                 self.optimizer.zero_grad()
-                
                 t.set_description('Epoch %i' % epoch)
                 
                 batch = batch[0]
-                
-                if isinstance(batch, dict):
-                    batch = {
-                        x: batch[x].contiguous().to(self.device)
-                        for x in batch if isinstance(batch[x], torch.Tensor)
-                    }
-                elif isinstance(batch, list) :
-                    batch = [x.to(self.device) for x in batch if isinstance(x, torch.Tensor)]
-
-                elif isinstance(batch, torch.Tensor):
-                    batch = batch.to(self.device)
-                
-                else :
-                    print("not support data type")
-                    exit(0)
-                
+                batch = {
+                    x: batch[x].contiguous().to(self.device)
+                    for x in batch if isinstance(batch[x], torch.Tensor)
+                }
                 
                 for param in self.model.parameters(): param.grad = None
                 loss = self.training_step(batch)
@@ -326,30 +280,8 @@ class AMOSTrainer:
         
         return dices
 
-    def get_input(self, batch):
-        image = batch["image"]
-        label = batch["label"]
-        
-        label = self.convert_labels(label)
-        label = label.float()
-        
-        return image, label
-
-    def convert_labels(self, labels):
-        labels_new = []
-        for i in range(self.num_classes):
-            labels_new.append(labels == i)
-        
-        labels_new = torch.cat(labels_new, dim=1)
-        return labels_new
-
-    def log(self, k, v, step=None):
-        if self.use_wandb:
-            wandb.log({k: v}, step=step if step is not None else self.global_step)
-    
-
 if __name__ == "__main__":
-    args = parse_args()
+    args = parse_args("train")
 
     trainer = AMOSTrainer(**vars(args))
     train_ds, val_ds = get_amosloader(data_dir=data_dir, mode="train", use_cache=args.use_cache)
