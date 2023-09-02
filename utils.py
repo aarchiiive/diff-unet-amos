@@ -31,7 +31,7 @@ def parse_args(mode):
                         help="Use pretrained model")
     parser.add_argument("--wandb_name", type=str, default=None, 
                         help="Name for WandB logging")
-    parser.add_argument("--use_wandb", action="store_true", default=True, # default=False,
+    parser.add_argument("--use_wandb", action="store_true", default=False, # default=False,
                         help="Use Weights & Biases for logging")
     parser.add_argument("--use_amp", action="store_true", default=True, # default=False,
                         help="Enable Automatic Mixed Precision (AMP)")

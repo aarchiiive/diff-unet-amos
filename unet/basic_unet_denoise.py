@@ -333,8 +333,7 @@ class BasicUNetDecoder(nn.Module):
         temt_embb = nonlinearity(t_emb)
         t_emb = self.t_emb.dense[1](t_emb)
 
-        if image is not None :
-            x = torch.cat([image, x], dim=1)
+        x = torch.cat([image, x], dim=1)
             
         x0 = self.conv_0(x, t_emb)
         if embeddings is not None:

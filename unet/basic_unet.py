@@ -402,7 +402,6 @@ class BasicUNetEncoder(nn.Module):
             A torch Tensor of "raw" predictions in shape
             ``(Batch, out_channels, dim_0[, dim_1, ..., dim_N])``.
         """
-
             
         x0 = self.conv_0(x)
         x1 = self.down_1(x0)
