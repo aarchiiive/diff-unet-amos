@@ -10,6 +10,8 @@ from monai.data import DataLoader
 from monai.inferers import SlidingWindowInferer
 from utils import load_model
 
+from scipy.ndimage import distance_transform_edt as eucl_distance
+
 class Engine:
     def __init__(
         self,

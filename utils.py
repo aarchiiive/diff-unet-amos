@@ -42,7 +42,7 @@ def parse_args(mode):
         # Training settings
         parser.add_argument("--log_dir", type=str,
                             help="Directory to store log files")
-        parser.add_argument("--max_epochs", type=int, default=5000,
+        parser.add_argument("--max_epochs", type=int, default=2000,
                             help="Maximum number of training epochs")
         parser.add_argument("--batch_size", type=int, default=10,
                             help="Batch size for training")

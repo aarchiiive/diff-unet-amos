@@ -79,7 +79,7 @@ class AMOSTrainer(Engine):
         self.model = self.load_model()
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=2e-4, weight_decay=1e-3)
         self.scheduler = LinearWarmupCosineAnnealingLR(self.optimizer,
-                                                       warmup_epochs=100,
+                                                       warmup_epochs=10,
                                                        max_epochs=max_epochs)
         self.ce = nn.CrossEntropyLoss() 
         self.mse = nn.MSELoss()
@@ -198,12 +198,13 @@ class AMOSTrainer(Engine):
                         loss.backward()
                         self.optimizer.step()
                     
-                    self.scheduler.step()
+                    
                     lr = self.optimizer.state_dict()['param_groups'][0]['lr']
 
                     t.set_postfix(loss=loss.item(), lr=lr)
                 t.update(1)
-            
+                
+            self.scheduler.step()
             self.log("loss", running_loss / len(loader))
                     
         if (epoch + 1) % self.save_freq == 0:
