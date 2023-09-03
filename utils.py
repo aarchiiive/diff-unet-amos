@@ -8,9 +8,9 @@ import torch.nn as nn
 
 from monai import transforms
 
-from dataset.amosloader import AMOSDataset
-from unet.diff_unet import DiffUNet
-from unet.smooth_diff_unet import SmoothDiffUNet
+from dataloader.amosloader import AMOSDataset
+from models.diff_unet import DiffUNet
+from models.smooth_diff_unet import SmoothDiffUNet
 
 
 def parse_args(mode):
@@ -27,11 +27,13 @@ def parse_args(mode):
                         help="Number of classes")
     parser.add_argument("--device", type=str, default="cuda:0",
                         help="Device for training (e.g., 'cuda:0', 'cpu')")
+    parser.add_argument("--model_path", type=str, default=None,
+                        help="Path to the checkpoint for pretrained weights")
     parser.add_argument("--pretrained", action="store_true", 
                         help="Use pretrained model")
     parser.add_argument("--wandb_name", type=str, default=None, 
                         help="Name for WandB logging")
-    parser.add_argument("--use_wandb", action="store_true", default=False, # default=False,
+    parser.add_argument("--use_wandb", action="store_true", default=True, # default=False,
                         help="Use Weights & Biases for logging")
     parser.add_argument("--use_amp", action="store_true", default=True, # default=False,
                         help="Enable Automatic Mixed Precision (AMP)")
@@ -40,26 +42,20 @@ def parse_args(mode):
         # Training settings
         parser.add_argument("--log_dir", type=str,
                             help="Directory to store log files")
-        parser.add_argument("--max_epochs", type=int, default=50000,
+        parser.add_argument("--max_epochs", type=int, default=5000,
                             help="Maximum number of training epochs")
-        parser.add_argument("--batch_size", type=int, default=15,
+        parser.add_argument("--batch_size", type=int, default=10,
                             help="Batch size for training")
         parser.add_argument("--num_workers", type=int, default=2,
                             help="Number of parallel workers for dataloader")
         parser.add_argument("--loss_combine", type=str, default='plus',
                             help="Method for combining multiple losses")
-        parser.add_argument("--val_freq", type=int, default=400,
+        parser.add_argument("--val_freq", type=int, default=20000,
                             help="Validation frequency (number of iterations)")
         parser.add_argument("--num_gpus", type=int, default=5,
                             help="Number of GPUs to use for training")
-        parser.add_argument("--model_path", type=str, default=None,
-                            help="Path to the checkpoint for pretrained weights")
-        parser.add_argument("--use_cache", action="store_true", default=False, # default=False,
+        parser.add_argument("--use_cache", action="store_true", default=True, # default=False,
                             help="Enable caching")
-    elif mode == "test":
-        # Testing settings
-        parser.add_argument("--model_path", type=str, default=None,
-                            help="Path to the saved model")
     
     args = parser.parse_args()
     
@@ -92,7 +88,7 @@ def save_model(model, optimizer, scheduler, epoch, global_step, best_mean_dice, 
         model = model.module
         
     state = {
-        'model_state_dict': model.state_dict(),
+        'model': model.state_dict(),
         'optimizer' : optimizer.state_dict(),
         'scheduler': scheduler.state_dict(),
         'epoch' : epoch+1,

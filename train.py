@@ -197,15 +197,14 @@ class AMOSTrainer(Engine):
                     else:
                         loss.backward()
                         self.optimizer.step()
-                        
-                    self.scheduler.step()
                     
+                    self.scheduler.step()
                     lr = self.optimizer.state_dict()['param_groups'][0]['lr']
 
                     t.set_postfix(loss=loss.item(), lr=lr)
                 t.update(1)
-                
-            self.log("loss", running_loss / len(loader), epoch)
+            
+            self.log("loss", running_loss / len(loader))
                     
         if (epoch + 1) % self.save_freq == 0:
             save_model(self.model,
@@ -227,33 +226,13 @@ class AMOSTrainer(Engine):
 
         loss_dice = self.dice_loss(pred_xstart, label)
         loss_bce = self.bce(pred_xstart, label)
-
-        pred_xstart = torch.sigmoid(pred_xstart)
-        loss_mse = self.mse(pred_xstart, label)
+        loss_mse = self.mse(torch.sigmoid(pred_xstart), label)
 
         if self.loss_combine == 'plus':
             loss = loss_dice + loss_bce + loss_mse
 
         return loss 
     
-    def validation_end(self, mean_val_outputs, epoch):
-        dices = mean_val_outputs
-        mean_dice = sum(dices) / len(dices)
-
-        if mean_dice > self.best_mean_dice:
-            self.best_mean_dice = mean_dice
-            save_model(self.model,
-                       self.optimizer,
-                       self.scheduler, 
-                       self.epoch,
-                       self.global_step,
-                       self.best_mean_dice,
-                       wandb.run.id,
-                       os.path.join(self.weights_path, f"best_{mean_dice:.4f}.pt"))
-
-        print(f"mean_dice : {mean_dice}")
-        self.log("mean_dice", mean_dice)
-
     def validation_step(self, batch):
         image, label = self.get_input(batch)  
         
@@ -272,6 +251,25 @@ class AMOSTrainer(Engine):
             # hd.append(hausdorff_distance_95(pred_c, target_c))
         
         return dices
+    
+    def validation_end(self, mean_val_outputs, epoch):
+        dices = mean_val_outputs
+        mean_dice = sum(dices) / len(dices)
+
+        if mean_dice > self.best_mean_dice:
+            self.best_mean_dice = mean_dice
+            save_model(self.model,
+                       self.optimizer,
+                       self.scheduler, 
+                       self.epoch,
+                       self.global_step,
+                       self.best_mean_dice,
+                       wandb.run.id,
+                       os.path.join(self.weights_path, f"best_{mean_dice:.4f}.pt"))
+
+        print(f"mean_dice : {mean_dice}")
+        self.log("mean_dice", mean_dice)
+    
 
 if __name__ == "__main__":
     args = parse_args("train")

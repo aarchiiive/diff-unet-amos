@@ -3,6 +3,8 @@ import wandb
 import torch
 import numpy as np
 
+from typing import Any, Callable, Iterable, List, Set, Tuple, TypeVar, Union, cast
+
 from torchvision import transforms
 from monai.data import DataLoader
 from monai.inferers import SlidingWindowInferer
@@ -113,6 +115,23 @@ class Engine:
             "label" : self.get_numpy_image(label, index, is_label=True),
             "output" : self.get_numpy_image(output, index, is_label=True),
         }
+    
+    # def one_hot2dist(self, seg: np.ndarray, resolution: Tuple[float, float, float] = None, dtype=None) -> np.ndarray:
+    #     assert one_hot(torch.tensor(seg), axis=0)
+    #     K: int = len(seg)
+
+    #     res = np.zeros_like(seg, dtype=dtype)
+    #     for k in range(K):
+    #         posmask = seg[k].astype(np.bool)
+
+    #         if posmask.any():
+    #             negmask = ~posmask
+    #             res[k] = eucl_distance(negmask, sampling=resolution) * negmask \
+    #                 - (eucl_distance(posmask, sampling=resolution) - 1) * posmask
+    #         # The idea is to leave blank the negative classes
+    #         # since this is one-hot encoded, another class will supervise that pixel
+
+    #     return res
         
     def log(self, k, v, step=None):
         if self.use_wandb:
