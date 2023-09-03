@@ -168,19 +168,19 @@ class SmoothUNetDecoder(BasicUNetDecoder):
         if embeddings is not None:
             x4 += embeddings[4]
         
-        x4 = self.smooth[0](x4)
+        # x4 = self.smooth[0](x4)
         u4 = self.upcat[0](x4, x3, t_emb)
         
-        u4 = self.smooth[1](u4)
+        # u4 = self.smooth[1](u4)
         u3 = self.upcat[1](u4, x2, t_emb)
         
-        u3 = self.smooth[2](u3)
+        # u3 = self.smooth[2](u3)
         u2 = self.upcat[2](u3, x1, t_emb)
         
-        u2 = self.smooth[3](u2)
+        # u2 = self.smooth[3](u2)
         u1 = self.upcat[3](u2, x0, t_emb)
 
-        u1 = self.smooth[4](u1)
+        # u1 = self.smooth[4](u1)
         logits = self.final_conv(u1)
         return logits
 
