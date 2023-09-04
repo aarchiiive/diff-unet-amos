@@ -12,7 +12,7 @@ from guided_diffusion.resample import UniformSampler
 class DiffUNet(nn.Module):
     def __init__(self, 
                  image_size,
-                 depth,
+                 spatial_size,
                  num_classes,
                  device,
                  pretrained,
@@ -26,7 +26,7 @@ class DiffUNet(nn.Module):
         elif isinstance(image_size, int):
             self.width = self.height = image_size
             
-        self.depth = depth
+        self.spatial_size = spatial_size
         self.num_classes = num_classes
         self.device = torch.device(device)
         self.pretrained = pretrained
@@ -66,18 +66,16 @@ class DiffUNet(nn.Module):
         elif pred_type == "ddim_sample":
             embeddings = self.embed_model(image)
             sample_out = self.sample_diffusion.ddim_sample_loop(self.model, 
-                                                                (1, self.num_classes, self.depth, self.width,  self.height), 
+                                                                (1, self.num_classes, self.spatial_size, self.spatial_size,  self.spatial_size), 
                                                                 model_kwargs={"image": image, "embeddings": embeddings})
             if self.mode == "train":
                 sample_out = sample_out["pred_xstart"].to(self.device)
                 return sample_out
             elif self.mode == "test":
-                sample_return = torch.zeros((1, self.num_classes, self.depth, self.width, self.height)).to(self.device)
+                sample_return = torch.zeros((1, self.num_classes, self.spatial_size, self.spatial_size, self.spatial_size)).to(self.device)
                 all_samples = sample_out["all_samples"]
-                index = 0
                 
                 for sample in all_samples:
                     sample_return += sample.to(self.device)
-                    index += 1
 
                 return sample_return

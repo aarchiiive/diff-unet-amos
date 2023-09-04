@@ -27,7 +27,7 @@ class AMOSTrainer(Engine):
         max_epochs=5000,
         batch_size=10, 
         image_size=256,
-        depth=96,
+        spatial_size=96,
         num_classes=16,
         val_freq=1, 
         save_freq=5,
@@ -37,20 +37,22 @@ class AMOSTrainer(Engine):
         loss_combine='plus',
         log_dir="logs", 
         model_path=None,
+        project_name="diff-unet",
         wandb_name=None,
         pretrained=True,
         use_amp=True,
         use_cache=True,
-        use_wandb=True
+        use_wandb=True,
     ):
         super().__init__(
             model_name=model_name, 
             image_size=image_size,
-            depth=depth,
+            spatial_size=spatial_size,
             num_classes=num_classes, 
             device=device,
             num_workers=num_workers,
             model_path=model_path,
+            project_name=project_name,
             wandb_name=wandb_name,
             pretrained=pretrained,
             use_amp=use_amp,
@@ -95,23 +97,23 @@ class AMOSTrainer(Engine):
         if use_wandb:
             if model_path is None:
                 if wandb_name is None: wandb_name = log_dir
-                wandb.init(project="diff-unet", 
+                wandb.init(project=self.project_name, 
                            name=f"{wandb_name}",
                            config=self.__dict__)
             else:
-                wandb.init(project="diff-unet", 
+                wandb.init(project=self.project_name, 
                            id=self.wandb_id, 
                            resume=True)
         
     def load_checkpoint(self, model_path):
-        checkpoint = torch.load(model_path)
-        self.model.load_state_dict(checkpoint['model'])
-        self.optimizer.load_state_dict(checkpoint['optimizer'])
-        self.scheduler.load_state_dict(checkpoint['scheduler'])
-        self.start_epoch = checkpoint['epoch']
-        self.global_step = checkpoint['global_step']
-        self.best_mean_dice = checkpoint['best_mean_dice']
-        self.wandb_id = checkpoint['id']
+        state_dict = torch.load(model_path)
+        self.model.load_state_dict(state_dict['model'])
+        self.optimizer.load_state_dict(state_dict['optimizer'])
+        self.scheduler.load_state_dict(state_dict['scheduler'])
+        self.start_epoch = state_dict['epoch']
+        self.global_step = state_dict['global_step']
+        self.best_mean_dice = state_dict['best_mean_dice']
+        self.wandb_id = state_dict['id']
         
         print(f"Checkpoint loaded from {model_path}")
 
@@ -214,13 +216,16 @@ class AMOSTrainer(Engine):
                        self.epoch,
                        self.global_step,
                        self.best_mean_dice,
+                       self.project_name,
                        wandb.run.id,
-                       os.path.join(self.weights_path, f"epoch_{epoch}.pt"))
+                       os.path.join(self.weights_path, f"epoch_{epoch+1}.pt"))
 
     def training_step(self, batch):
         image, label = self.get_input(batch)
         x_start = label
 
+        print(image.shape)
+        print(x_start.shape)
         x_start = (x_start) * 2 - 1
         x_t, t, noise = self.model(x=x_start, pred_type="q_sample")
         pred_xstart = self.model(x=x_t, step=t, image=image, pred_type="denoise")
@@ -265,6 +270,7 @@ class AMOSTrainer(Engine):
                        self.epoch,
                        self.global_step,
                        self.best_mean_dice,
+                       self.project_name,
                        wandb.run.id,
                        os.path.join(self.weights_path, f"best_{mean_dice:.4f}.pt"))
 
@@ -273,7 +279,7 @@ class AMOSTrainer(Engine):
     
 
 if __name__ == "__main__":
-    args = parse_args("train")
+    args = parse_args("train", project_name="diff-unet")
 
     trainer = AMOSTrainer(**vars(args))
     train_ds, val_ds = get_amosloader(data_dir=data_dir, mode="train", use_cache=args.use_cache)

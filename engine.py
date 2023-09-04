@@ -17,12 +17,13 @@ class Engine:
         self,
         model_name="diff_unet", 
         image_size=256,
-        depth=96,
+        spatial_size=96,
         class_names=None,
         num_classes=16, 
         device="cpu",
         num_workers=2,
         model_path=None,
+        project_name=None,
         wandb_name=None,
         pretrained=True,
         use_amp=True,
@@ -31,12 +32,13 @@ class Engine:
     ):
         self.model_name = model_name
         self.image_size = image_size
-        self.depth = depth
+        self.spatial_size = spatial_size
         self.class_names = class_names
         self.num_classes = num_classes
         self.device = torch.device(device)
         self.num_workers = num_workers
         self.model_path = model_path
+        self.project_name = project_name
         self.wandb_name = wandb_name
         self.pretrained = pretrained
         self.use_amp = use_amp
@@ -46,10 +48,10 @@ class Engine:
         self.best_mean_dice = 0
         
         if isinstance(image_size, tuple):
-            self.width = image_size[0]
-            self.height = image_size[1]
+            width = image_size[0]
+            height = image_size[1]
         elif isinstance(image_size, int):
-            self.width = self.height = image_size
+            width = height = image_size
         
         if class_names is not None:
             self.class_names = class_names
@@ -61,7 +63,7 @@ class Engine:
             self.table = wandb.Table(columns=["patient", "image", "dice"]+[n for n in self.class_names.values()])
         
         self.scaler = torch.cuda.amp.GradScaler()
-        self.window_infer = SlidingWindowInferer(roi_size=[depth, self.width, self.height],
+        self.window_infer = SlidingWindowInferer(roi_size=[spatial_size, spatial_size, spatial_size],
                                                  sw_batch_size=1,
                                                  overlap=0.6)
         self.tensor2pil = transforms.ToPILImage()
@@ -72,7 +74,7 @@ class Engine:
     def load_model(self):
         return load_model(model_name=self.model_name, 
                           image_size=self.image_size,
-                          depth=self.depth,
+                          spatial_size=self.spatial_size,
                           num_classes=self.num_classes,
                           device=self.device,
                           pretrained=self.pretrained,

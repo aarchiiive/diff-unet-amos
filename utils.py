@@ -2,6 +2,7 @@ import os
 import glob 
 import argparse
 from prettytable import PrettyTable
+from collections import OrderedDict
 
 import torch
 import torch.nn as nn
@@ -13,7 +14,7 @@ from models.diff_unet import DiffUNet
 from models.smooth_diff_unet import SmoothDiffUNet
 
 
-def parse_args(mode):
+def parse_args(mode="train", project_name="diff-unet"):
     parser = argparse.ArgumentParser()
     
     # Common settings
@@ -21,19 +22,21 @@ def parse_args(mode):
                         help="Name of the model type")
     parser.add_argument("--image_size", type=int, default=256, 
                         help="Image size")
-    parser.add_argument("--depth", type=int, default=96, 
-                        help="Depth parameter")
+    parser.add_argument("--spatial_size", type=int, default=96, 
+                        help="Spatial size")
     parser.add_argument("--num_classes", type=int, default=16, 
                         help="Number of classes")
-    parser.add_argument("--device", type=str, default="cuda:0",
+    parser.add_argument("--device", type=str, default="cuda:1",
                         help="Device for training (e.g., 'cuda:0', 'cpu')")
-    parser.add_argument("--model_path", type=str, default=None,
+    parser.add_argument("--model_path", type=str, default="logs/smoothing-encoder/weights/epoch_474.pt",
                         help="Path to the checkpoint for pretrained weights")
     parser.add_argument("--pretrained", action="store_true", 
                         help="Use pretrained model")
-    parser.add_argument("--wandb_name", type=str, default=None, 
+    parser.add_argument("--project_name", type=str, default=project_name, 
+                        help="Project name for WandB logging")
+    parser.add_argument("--wandb_name", type=str, default="smoothing-encoder", 
                         help="Name for WandB logging")
-    parser.add_argument("--use_wandb", action="store_true", default=True, # default=False,
+    parser.add_argument("--use_wandb", action="store_true", default=False, # default=False,
                         help="Use Weights & Biases for logging")
     parser.add_argument("--use_amp", action="store_true", default=True, # default=False,
                         help="Enable Automatic Mixed Precision (AMP)")
@@ -54,7 +57,7 @@ def parse_args(mode):
                             help="Validation frequency (number of iterations)")
         parser.add_argument("--num_gpus", type=int, default=5,
                             help="Number of GPUs to use for training")
-        parser.add_argument("--use_cache", action="store_true", default=True, # default=False,
+        parser.add_argument("--use_cache", action="store_true", default=False, # default=False,
                             help="Enable caching")
     
     args = parser.parse_args()
@@ -77,7 +80,7 @@ def load_model(model_name, **kwargs):
 
     return model
 
-def save_model(model, optimizer, scheduler, epoch, global_step, best_mean_dice, id, save_path, delete_symbol=None):
+def save_model(model, optimizer, scheduler, epoch, global_step, best_mean_dice, project_name, id, save_path, delete_symbol=None):
     save_dir = os.path.dirname(save_path)
 
     os.makedirs(save_dir, exist_ok=True)
@@ -89,19 +92,27 @@ def save_model(model, optimizer, scheduler, epoch, global_step, best_mean_dice, 
         
     state = {
         'model': model.state_dict(),
-        'optimizer' : optimizer.state_dict(),
+        'optimizer': optimizer.state_dict(),
         'scheduler': scheduler.state_dict(),
-        'epoch' : epoch+1,
-        'global_step' : global_step,
-        'best_mean_dice' : best_mean_dice,
-        'id' : id,
+        'epoch': epoch+1,
+        'global_step': global_step,
+        'best_mean_dice': best_mean_dice,
+        'project_name': project_name,
+        'id': id,
     }
     
     torch.save(state, save_path)
 
     print(f"model is saved in {save_path}")
 
-def get_amosloader(data_dir, spatial_size=96, num_samples=1, mode="train", use_cache=True):
+def get_class_names(dataset="amos"):
+    if dataset == "amos":
+        return OrderedDict({0: "background", 1: "spleen", 2: "right kidney", 3: "left kidney", 
+                            4: "gall bladder", 5: "esophagus", 6: "liver", 7: "stomach", 
+                            8: "arota", 9: "postcava", 10: "pancreas", 11: "right adrenal gland", 
+                            12: "left adrenal gland", 13: "duodenum", 14: "bladder", 15: "prostate,uterus"})
+
+def get_amosloader(data_dir, image_size=256, spatial_size=96, num_samples=1, mode="train", use_cache=True):
     data = {
         "train" : 
             {"images" : sorted(glob.glob(f"{data_dir}/imagesTr/*.nii.gz")),
@@ -136,7 +147,7 @@ def get_amosloader(data_dir, spatial_size=96, num_samples=1, mode="train", use_c
             transforms.RandCropByPosNegLabeld(
                 keys=["image", "label"],
                 label_key="label",
-                spatial_size=(spatial_size, spatial_size, spatial_size),
+                spatial_size=(spatial_size, image_size, image_size),
                 pos=1,
                 neg=1,
                 num_samples=num_samples,
@@ -168,6 +179,16 @@ def get_amosloader(data_dir, spatial_size=96, num_samples=1, mode="train", use_c
 
     test_transform = transforms.Compose(
         [   
+            transforms.RandCropByPosNegLabeld(
+                keys=["image", "label"],
+                label_key="label",
+                spatial_size=(spatial_size, image_size, image_size),
+                pos=1,
+                neg=1,
+                num_samples=num_samples,
+                image_key="image",
+                image_threshold=0,
+            ),
             transforms.ScaleIntensityRanged(
                 keys=["image"], a_min=-175, a_max=250.0, b_min=0, b_max=1.0, clip=True
             ),            

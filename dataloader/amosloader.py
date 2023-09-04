@@ -87,21 +87,21 @@ def resample_img(
 
 class AMOSDataset(Dataset):
     def __init__(self, 
-                 data_list : list, 
-                 image_size : int = 256,
-                 depth : int = 96,
-                 padding : bool = True,
-                 transform : transforms = None, 
-                 data_dir : Optional[str] = None, 
-                 data_dict : Optional[dict] = None, 
-                 mode : Optional[str] = "train",
-                 use_cache : Optional[bool] = True) -> None:
+                 data_list: list, 
+                 image_size: int = 256,
+                 spatial_size: int = 96,
+                 padding: bool = True,
+                 transform: transforms = None, 
+                 data_dir: Optional[str] = None, 
+                 data_dict: Optional[dict] = None, 
+                 mode: Optional[str] = "train",
+                 use_cache: Optional[bool] = True) -> None:
         super().__init__()
         
         self.transform = transform
         self.data_list = data_list
         self.image_size = image_size
-        self.depth = depth
+        self.spatial_size = spatial_size
         self.padding = padding
         self.data_dir = data_dir
         self.data_dict = data_dict
@@ -172,23 +172,23 @@ class AMOSDataset(Dataset):
             if self.padding:
                 _, _, d = image.shape
                 
-                if self.depth > d: # add padding
-                    p = (self.depth - d) // 2
+                if self.spatial_size > d: # add padding
+                    p = (self.spatial_size - d) // 2
                     pad = (p, p) if d % 2 == 0 else (p, p+1)
                     image = F.pad(image, pad, "constant")
                     label = F.pad(label, pad, "constant")
-                elif self.depth < d: # resize -> reducing depth
-                    image = F.interpolate(image, size=(self.depth), mode='nearest')
-                    label = F.interpolate(label, size=(self.depth), mode='nearest')
+                elif self.spatial_size < d: # resize -> reducing depth
+                    image = F.interpolate(image, size=(self.spatial_size), mode='nearest')
+                    label = F.interpolate(label, size=(self.spatial_size), mode='nearest')
                     
                 _, _, d = raw_label.shape
                  
-                if self.depth > d: # add padding
-                    p = (self.depth - d) // 2
+                if self.spatial_size > d: # add padding
+                    p = (self.spatial_size - d) // 2
                     pad = (p, p) if d % 2 == 0 else (p, p+1)
                     raw_label = F.pad(raw_label, pad, "constant")
-                elif self.depth < d: # resize -> reducing depth
-                    raw_label = F.interpolate(raw_label, size=(self.depth), mode='nearest')
+                elif self.spatial_size < d: # resize -> reducing depth
+                    raw_label = F.interpolate(raw_label, size=(self.spatial_size), mode='nearest')
 
             # # (H, W, D) -> (D, W, H)
             image = torch.transpose(image, 0, 2).contiguous()
