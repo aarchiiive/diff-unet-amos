@@ -147,9 +147,9 @@ class SmoothUNetDecoder(BasicUNetDecoder):
         
     def forward(self, x: torch.Tensor, t, embeddings=None, image=None):
         t_emb = get_timestep_embedding(t, 128)
-        t_emb = self.t_emb.dense[0](t_emb)
+        t_emb = self.temb.dense[0](t_emb)
         t_emb = nonlinearity(t_emb)
-        t_emb = self.t_emb.dense[1](t_emb)
+        t_emb = self.temb.dense[1](t_emb)
 
         if image is not None:
             x = torch.cat([image, x], dim=1)

@@ -114,7 +114,7 @@ def get_amosloader(data_dir, image_size=256, spatial_size=96, num_samples=1, mod
             # transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=1),
             # transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=2),
 
-            transforms.RandRotate90d(keys=["image", "label"], prob=0.2, max_k=3),
+            # transforms.RandRotate90d(keys=["image", "label"], prob=0.2, max_k=3),
             transforms.RandScaleIntensityd(keys="image", factors=0.1, prob=0.1),
             transforms.RandShiftIntensityd(keys="image", offsets=0.1, prob=0.1),
             transforms.ToTensord(keys=["image", "label"]),
@@ -125,6 +125,10 @@ def get_amosloader(data_dir, image_size=256, spatial_size=96, num_samples=1, mod
         [   
             transforms.ScaleIntensityRanged(
                 keys=["image"], a_min=-175, a_max=250.0, b_min=0, b_max=1.0, clip=True
+            ),
+            transforms.Resized(
+                keys=["image", "label"],
+                spatial_size=(spatial_size, image_size, image_size),
             ),
             transforms.CropForegroundd(keys=["image", "label"], source_key="image"),
             transforms.ToTensord(keys=["image", "label"]),

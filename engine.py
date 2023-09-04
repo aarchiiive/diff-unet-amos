@@ -8,7 +8,7 @@ from typing import Any, Callable, Iterable, List, Set, Tuple, TypeVar, Union, ca
 
 import torch
 from torchvision import transforms
-from monai.data import DataLoader
+from monai.data import DataLoader, ThreadDataLoader
 from monai.inferers import SlidingWindowInferer
 from utils import load_model
 

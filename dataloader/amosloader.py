@@ -10,14 +10,7 @@
 # limitations under the License.
 
 
-from typing import (
-    List,
-    Dict,
-    Tuple,
-    Optional, 
-    Sequence, 
-    Union
-)
+from typing import Optional
 
 import os
 import pickle
@@ -30,59 +23,7 @@ import SimpleITK as sitk
 import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset 
-
 from monai import transforms
-
-
-def resample_img(
-    image: sitk.Image,
-    out_spacing = (2.0, 2.0, 2.0),
-    out_size = None,
-    is_label: bool = False,
-    pad_value = 0.,
-) -> sitk.Image:
-    """
-    Resample images to target resolution spacing
-    Ref: SimpleITK
-    """
-    # get original spacing and size
-    original_spacing = image.GetSpacing()
-    original_size = image.GetSize()
-
-    # convert our z, y, x convention to SimpleITK's convention
-    out_spacing = list(out_spacing)[::-1]
-
-    if out_size is None:
-        # calculate output size in voxels
-        out_size = [
-            int(np.round(
-                size * (spacing_in / spacing_out)
-            ))
-            for size, spacing_in, spacing_out in zip(original_size, original_spacing, out_spacing)
-        ]
-
-    # determine pad value
-    if pad_value is None:
-        pad_value = image.GetPixelIDValue()
-
-    # set up resampler
-    resample = sitk.ResampleImageFilter()
-    resample.SetOutputSpacing(list(out_spacing))
-    resample.SetSize(out_size)
-    resample.SetOutputDirection(image.GetDirection())
-    resample.SetOutputOrigin(image.GetOrigin())
-    resample.SetTransform(sitk.Transform())
-    resample.SetDefaultPixelValue(pad_value)
-    
-    if is_label:
-        resample.SetInterpolator(sitk.sitkNearestNeighbor)
-    else:
-        resample.SetInterpolator(sitk.sitkBSpline)
-
-    # perform resampling
-    image = resample.Execute(image)
-
-    return image
 
 
 class AMOSDataset(Dataset):
@@ -112,23 +53,15 @@ class AMOSDataset(Dataset):
         self.use_cache = use_cache
         
         assert mode != "train" or  mode != "val" or  mode != "test", \
-            "key must be one of these keywords : train / val / test"
+            "Key must be one of these keywords : train / val / test"
             
         self.key = "Tr" if mode == "train" else "Va"
-        
-        # self.cache = cache
-        
-        self.resize = transforms.Compose([transforms.Resize((self.image_size, self.image_size))])
-
-        os.makedirs(self.tensor_dir, exist_ok=True)
-        os.makedirs(self.cache_dir, exist_ok=True)
-        
+        self.resize = transforms.Compose([transforms.Resize((image_size, image_size))])
         self.cache = {}
         
         if use_cache:
             print("Caching....")
             self.save_cache(mode)
-        
     
     def load_cache(self, mode):
         if os.path.exists(self.cache_path):
@@ -152,10 +85,6 @@ class AMOSDataset(Dataset):
             image_path = data_path[0]
             label_path = data_path[1]
 
-            # image = sitk.GetArrayFromImage(resample_img(sitk.ReadImage(image_path))).astype(np.float32)
-            # label = sitk.GetArrayFromImage(resample_img(sitk.ReadImage(label_path), is_label=True)).astype(np.float32)
-            # raw_label = sitk.GetArrayFromImage(sitk.ReadImage(label_path)).astype(np.float32)
-            
             image = nibabel.load(image_path).get_fdata()
             label = nibabel.load(label_path).get_fdata()
             raw_label = nibabel.load(label_path).get_fdata()
@@ -164,17 +93,17 @@ class AMOSDataset(Dataset):
             label = torch.tensor(label)
             raw_label = torch.tensor(raw_label)
             
-            # if self.padding:
-            #     _, _, d = image.shape
+            if self.padding:
+                _, _, d = image.shape
                 
-            #     if self.spatial_size > d: # add padding
-            #         p = (self.spatial_size - d) // 2
-            #         pad = (p, p) if d % 2 == 0 else (p, p+1)
-            #         image = F.pad(image, pad, "constant")
-            #         label = F.pad(label, pad, "constant")
-            #     elif self.spatial_size < d: # resize -> reducing depth
-            #         image = F.interpolate(image, size=(self.spatial_size), mode='nearest')
-            #         label = F.interpolate(label, size=(self.spatial_size), mode='nearest')
+                if self.spatial_size > d: # add padding
+                    p = (self.spatial_size - d) // 2
+                    pad = (p, p) if d % 2 == 0 else (p, p+1)
+                    image = F.pad(image, pad, "constant")
+                    label = F.pad(label, pad, "constant")
+                elif self.spatial_size < d: # resize -> reducing depth
+                    image = F.interpolate(image, size=(self.spatial_size), mode='nearest')
+                    label = F.interpolate(label, size=(self.spatial_size), mode='nearest')
                     
             # (H, W, D) -> (D, W, H)
             image = torch.transpose(image, 0, 2).contiguous()
@@ -191,9 +120,9 @@ class AMOSDataset(Dataset):
             
             self.cache[data_path[0]] = {
                 "image": image,
-                "label": label,
-                "raw_label": raw_label
+                "label": label
             } 
+            if self.mode == "test": self.cache[data_path[0]]["raw_label"] = raw_label
             
             return self.cache[data_path[0]]
         

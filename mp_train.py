@@ -2,7 +2,6 @@ import os
 import wandb
 from tqdm import tqdm
 import numpy as np
-from collections import OrderedDict
 
 import torch 
 import torch.nn as nn 
@@ -19,10 +18,8 @@ from engine import Engine
 from utils import parse_args, save_model, get_amosloader
 from dataset_path import data_dir
 
-set_determinism(123)
 
-        
-class AMOSTrainer(Engine):
+class DistributedTrainer(Engine):
     def __init__(
         self, 
         model_name="diff_unet",
@@ -94,7 +91,7 @@ class AMOSTrainer(Engine):
             self.load_checkpoint(model_path)
                 
         if self.num_gpus > 1:
-            self.model = DataParallel(self.model)
+            self.model = DistributedDataParallel(self.model)
             
         if use_wandb:
             if model_path is None:
@@ -109,28 +106,13 @@ class AMOSTrainer(Engine):
         
     def load_checkpoint(self, model_path):
         state_dict = torch.load(model_path)
-        # self.model.load_state_dict(state_dict['model'])
+        self.model.load_state_dict(state_dict['model'])
         self.optimizer.load_state_dict(state_dict['optimizer'])
         self.scheduler.load_state_dict(state_dict['scheduler'])
         self.start_epoch = state_dict['epoch']
         self.global_step = state_dict['global_step']
         self.best_mean_dice = state_dict['best_mean_dice']
         self.wandb_id = state_dict['id']
-        
-        # deprecated soon
-        if 'model' in state_dict.keys():
-           model_state_dict = state_dict['model_state_dict']
-        elif 'model_state_dict' in state_dict.keys():
-            model_state_dict = state_dict['model_state_dict']
-            
-        temp_dict = OrderedDict()
-        for k, v in model_state_dict.items():
-            if "temb.dense" in k:
-                temp_dict[k.replace("temb.dense", "t_emb.dense")] = v
-            else:
-                temp_dict[k] = v
-                    
-        self.model.load_state_dict(temp_dict)
         
         print(f"Checkpoint loaded from {model_path}")
 
@@ -239,8 +221,10 @@ class AMOSTrainer(Engine):
 
     def training_step(self, batch):
         image, label = self.get_input(batch)
-        
         x_start = label
+
+        print(image.shape)
+        print(x_start.shape)
         x_start = (x_start) * 2 - 1
         x_t, t, noise = self.model(x=x_start, pred_type="q_sample")
         pred_xstart = self.model(x=x_t, step=t, image=image, pred_type="denoise")
@@ -292,11 +276,10 @@ class AMOSTrainer(Engine):
         print(f"mean_dice : {mean_dice}")
         self.log("mean_dice", mean_dice)
 
-
 if __name__ == "__main__":
     args = parse_args()
 
-    trainer = AMOSTrainer(**vars(args))
+    trainer = DistributedTrainer(**vars(args))
     train_ds, val_ds = get_amosloader(data_dir=data_dir,
                                       image_size=args.image_size,
                                       spatial_size=args.spatial_size,

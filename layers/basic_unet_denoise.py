@@ -295,8 +295,8 @@ class BasicUNetDecoder(nn.Module):
         # print(f"BasicUNet features: {fea}.")
         
         # timestep embedding
-        self.t_emb = nn.Module()
-        self.t_emb.dense = nn.ModuleList([
+        self.temb = nn.Module()
+        self.temb.dense = nn.ModuleList([
             torch.nn.Linear(128,
                             512),
             torch.nn.Linear(512,
@@ -328,37 +328,37 @@ class BasicUNetDecoder(nn.Module):
             A torch Tensor of "raw" predictions in shape
             ``(Batch, out_channels, dim_0[, dim_1, ..., dim_N])``.
         """
-        t_emb = get_timestep_embedding(t, 128)
-        t_emb = self.t_emb.dense[0](t_emb)
-        temt_embb = nonlinearity(t_emb)
-        t_emb = self.t_emb.dense[1](t_emb)
+        temb = get_timestep_embedding(t, 128)
+        temb = self.temb.dense[0](temb)
+        temb = nonlinearity(temb)
+        temb = self.temb.dense[1](temb)
 
         x = torch.cat([image, x], dim=1)
             
-        x0 = self.conv_0(x, t_emb)
+        x0 = self.conv_0(x, temb)
         if embeddings is not None:
             x0 += embeddings[0]
 
-        x1 = self.down_1(x0, t_emb)
+        x1 = self.down_1(x0, temb)
         if embeddings is not None:
             x1 += embeddings[1]
 
-        x2 = self.down_2(x1, t_emb)
+        x2 = self.down_2(x1, temb)
         if embeddings is not None:
             x2 += embeddings[2]
 
-        x3 = self.down_3(x2, t_emb)
+        x3 = self.down_3(x2, temb)
         if embeddings is not None:
             x3 += embeddings[3]
 
-        x4 = self.down_4(x3, t_emb)
+        x4 = self.down_4(x3, temb)
         if embeddings is not None:
             x4 += embeddings[4]
 
-        u4 = self.upcat_4(x4, x3, t_emb)
-        u3 = self.upcat_3(u4, x2, t_emb)
-        u2 = self.upcat_2(u3, x1, t_emb)
-        u1 = self.upcat_1(u2, x0, t_emb)
+        u4 = self.upcat_4(x4, x3, temb)
+        u3 = self.upcat_3(u4, x2, temb)
+        u2 = self.upcat_2(u3, x1, temb)
+        u1 = self.upcat_1(u2, x0, temb)
 
         logits = self.final_conv(u1)
         return logits
