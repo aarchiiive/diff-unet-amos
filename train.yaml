@@ -5,15 +5,16 @@ num_classes: 16
 device: "cuda:0"
 model_path: null  # "logs/amos/weights/epoch_800.pt"
 pretrained: true
-project_name: project_name_placeholder
+project_name: "smoothing-encoder-ver2"
 wandb_name: "diff-unet"
-use_wandb: false  # default=False
-use_amp: true  # default=False
+use_wandb: true  # default=False
+use_amp: true  # true
 log_dir: "test"
 max_epochs: 2000
-batch_size: 1
+batch_size: 15
 num_workers: 2
 loss_combine: "plus"
 val_freq: 20000
-num_gpus: 1
-use_cache: false  # default=False
+num_gpus: 5
+use_cache: true  # true
+

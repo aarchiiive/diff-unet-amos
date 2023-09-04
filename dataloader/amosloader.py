@@ -224,12 +224,12 @@ class AMOSDataset(Dataset):
         return len(self.data_list)
     
     def __getitem__(self, i):
-        image = self.read_data(self.data_list[i])
+        data = self.read_data(self.data_list[i])
         
         if self.transform is not None:
-            image = self.transform(image)
+            data = self.transform(data)
         
-        return image, self.data_list[i][0]
+        return data, self.data_list[i][0]
             
 
 

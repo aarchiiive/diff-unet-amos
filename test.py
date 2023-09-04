@@ -141,7 +141,7 @@ class AMOSTester(Engine):
 
 if __name__ == "__main__":
     class_names = get_class_names("amos")
-    args = parse_args("test", project_name="diff-unet-test")
+    args = parse_args()
     
     tester = AMOSTester(**vars(args), class_names=class_names)
     test_ds = get_amosloader(data_dir=data_dir, 

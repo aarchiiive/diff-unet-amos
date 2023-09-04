@@ -279,7 +279,7 @@ class AMOSTrainer(Engine):
     
 
 if __name__ == "__main__":
-    args = parse_args("train", project_name="diff-unet")
+    args = parse_args()
 
     trainer = AMOSTrainer(**vars(args))
     train_ds, val_ds = get_amosloader(data_dir=data_dir,

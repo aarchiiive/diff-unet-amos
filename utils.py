@@ -87,13 +87,18 @@ def get_amosloader(data_dir, image_size=256, spatial_size=96, num_samples=1, mod
             transforms.ScaleIntensityRanged(
                 keys=["image"], a_min=-175, a_max=250.0, b_min=0, b_max=1.0, clip=True
             ),
-            transforms.CropForegroundd(keys=["image", "label"], source_key="image"),
-            transforms.RandScaleCrop(roi_scale=[0.75, 0.8, 0.85, 0.9, 0.95, 1.0]),
+            transforms.CropForegroundd(
+                keys=["image", "label"], source_key="image"
+            ),
+            transforms.RandScaleCropd(
+                keys=["image", "label"], 
+                roi_scale=[0.75, 0.85, 0.95],
+                random_size=False
+            ),
             transforms.Resized(
                 keys=["image", "label"],
                 spatial_size=(spatial_size, image_size, image_size),
             ),
-            # transforms.ResizeWithPadOrCrop(roi_size=(spatial_size, image_size, image_size)),
             transforms.RandCropByPosNegLabeld(
                 keys=["image", "label"],
                 label_key="label",
@@ -122,7 +127,6 @@ def get_amosloader(data_dir, image_size=256, spatial_size=96, num_samples=1, mod
                 keys=["image"], a_min=-175, a_max=250.0, b_min=0, b_max=1.0, clip=True
             ),
             transforms.CropForegroundd(keys=["image", "label"], source_key="image"),
-            
             transforms.ToTensord(keys=["image", "label"]),
         ]
     )
@@ -136,10 +140,6 @@ def get_amosloader(data_dir, image_size=256, spatial_size=96, num_samples=1, mod
         ]
     )
 
-    # train_ds = PretrainDataset(data["train"]["files"], transform=train_transform, data_dir=data_dir, cache=cache)
-    # val_ds = PretrainDataset(data["val"]["files"], transform=val_transform, data_dir=data_dir, cache=cache)
-    # test_ds = PretrainDataset(data["val"]["files"], transform=test_transform, data_dir=data_dir)
-    
     if mode == "train":
         train_dataset = AMOSDataset(data["train"]["files"], 
                                 transform=train_transform, 
@@ -192,57 +192,10 @@ def get_amosloader(data_dir, image_size=256, spatial_size=96, num_samples=1, mod
     
     return loader
 
-def parse_args(mode="train", project_name="diff-unet"):
+def parse_args():
     parser = argparse.ArgumentParser()
-    
-    # Common settings
     parser.add_argument("--config", type=str, required=True,
                         help="Path to the YAML configuration file")
-    parser.add_argument("--model_name", type=str, default="smooth_diff_unet", # "diff_unet",
-                        help="Name of the model type")
-    parser.add_argument("--image_size", type=int, default=96, 
-                        help="Image size")
-    parser.add_argument("--spatial_size", type=int, default=96, 
-                        help="Spatial size")
-    parser.add_argument("--num_classes", type=int, default=16, 
-                        help="Number of classes")
-    parser.add_argument("--device", type=str, default="cuda:0",
-                        help="Device for training (e.g., 'cuda:0', 'cpu')")
-    parser.add_argument("--model_path", type=str, default=None, # "logs/amos/weights/epoch_800.pt",
-                        help="Path to the checkpoint for pretrained weights")
-    parser.add_argument("--pretrained", action="store_true", 
-                        help="Use pretrained model")
-    parser.add_argument("--project_name", type=str, default=project_name, 
-                        help="Project name for WandB logging")
-    parser.add_argument("--wandb_name", type=str, default="diff-unet", 
-                        help="Name for WandB logging")
-    parser.add_argument("--use_wandb", action="store_true", default=False, # default=False,
-                        help="Use Weights & Biases for logging")
-    parser.add_argument("--use_amp", action="store_true", default=True, # default=False,
-                        help="Enable Automatic Mixed Precision (AMP)")
-    
-    if mode == "train":
-        # Training settings
-        parser.add_argument("--log_dir", type=str, default="test",
-                            help="Directory to store log files")
-        parser.add_argument("--max_epochs", type=int, default=2000,
-                            help="Maximum number of training epochs")
-        parser.add_argument("--batch_size", type=int, default=1,
-                            help="Batch size for training")
-        parser.add_argument("--num_workers", type=int, default=2,
-                            help="Number of parallel workers for dataloader")
-        parser.add_argument("--loss_combine", type=str, default='plus',
-                            help="Method for combining multiple losses")
-        parser.add_argument("--val_freq", type=int, default=20000,
-                            help="Validation frequency (number of iterations)")
-        parser.add_argument("--num_gpus", type=int, default=1,
-                            help="Number of GPUs to use for training")
-        parser.add_argument("--use_cache", action="store_true", default=False, # default=False,
-                            help="Enable caching")
-    elif mode == "test":
-        parser.add_argument("--epoch", type=int, default=800,
-                            help="Saved epoch when training")
-    
     args = parser.parse_args()
     
     with open(args.config, "r") as f:
