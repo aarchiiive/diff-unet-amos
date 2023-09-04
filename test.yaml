@@ -1,0 +1,12 @@
+model_name: "smooth_diff_unet"  # "diff_unet"
+image_size: 96
+spatial_size: 96
+num_classes: 16
+device: "cuda:0"
+model_path: null  # "logs/amos/weights/epoch_800.pt"
+pretrained: true
+project_name: project_name_placeholder
+wandb_name: "diff-unet"
+use_wandb: false  # default=False
+use_amp: true  # default=False
+epoch: 800

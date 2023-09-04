@@ -282,5 +282,9 @@ if __name__ == "__main__":
     args = parse_args("train", project_name="diff-unet")
 
     trainer = AMOSTrainer(**vars(args))
-    train_ds, val_ds = get_amosloader(data_dir=data_dir, mode="train", use_cache=args.use_cache)
+    train_ds, val_ds = get_amosloader(data_dir=data_dir,
+                                      image_size=args.image_size,
+                                      spatial_size=args.spatial_size,
+                                      mode="train", 
+                                      use_cache=args.use_cache)
     trainer.train(train_dataset=train_ds, val_dataset=val_ds)

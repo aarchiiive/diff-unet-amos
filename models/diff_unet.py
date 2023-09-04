@@ -32,7 +32,7 @@ class DiffUNet(nn.Module):
         self.pretrained = pretrained
         self.mode = mode
         
-        self.embed_model = BasicUNetEncoder(3, 1, num_classes, [64, 64, 128, 256, 512, 64])
+        self.embed_model = BasicUNetEncoder(3, 1, 2, [64, 64, 128, 256, 512, 64])
         self.model = BasicUNetDecoder(3, num_classes+1, num_classes, [64, 64, 128, 256, 512, 64], 
                                 act = ("LeakyReLU", {"negative_slope": 0.1, "inplace": False}))
 

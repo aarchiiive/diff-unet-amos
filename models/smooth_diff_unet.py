@@ -1,12 +1,9 @@
 from typing import Optional, Sequence, Union
 
-import math
-
 import torch 
 import torch.nn as nn 
 import torch.nn.functional as F
 
-from monai.engines import SupervisedEvaluator
 from models.diff_unet import DiffUNet
 from layers.basic_unet import BasicUNetEncoder
 from layers.basic_unet_denoise import get_timestep_embedding, nonlinearity, BasicUNetDecoder
@@ -32,9 +29,6 @@ class SmoothLayer(nn.Module):
         w, h = width, height
         d = spatial_size
         
-        # print(f"image size : ({w}, {h})")
-        # print(f"spatial size : {d}")
-        
         self.p = p
         self.k = k
         self.padding = (p,) * len(self.dims) * 2
@@ -44,9 +38,11 @@ class SmoothLayer(nn.Module):
                        (0, -p, 0),
                        (0, 0, p),
                        (0, 0, -p)]
-        self.weights = nn.Parameter(torch.randn(in_features, d, d, d) * 0.1)
+        self.weights = nn.Parameter(torch.randn(in_features, d, w, h) * 0.01)
         
     def forward(self, x: torch.Tensor):
+        print(x.shape)
+        print(self.weights.shape)
         p = self.p
         _x = F.pad(x.clone(), self.padding, "constant", 0)
         laplacian = -6 * _x
@@ -113,6 +109,7 @@ class SmoothUNetEncoder(BasicUNetEncoder):
         
         return _x
 
+
 class SmoothUNetDecoder(BasicUNetDecoder):
     def __init__(
         self,
@@ -144,19 +141,7 @@ class SmoothUNetDecoder(BasicUNetDecoder):
             upsample,
             dimensions,
         )
-        # for short code
-        w = h = image_size
-        d = spatial_size
-        
-        # print(f"image size : ({w}, {h})")
-        # print(f"spatial size : {d}")
-
         self.smoothing = smoothing
-        self.smooth = nn.ModuleList([SmoothLayer(features[4], d // 16, w // 16, h // 16),
-                                     SmoothLayer(features[3], d // 8, w // 8, h // 8),
-                                     SmoothLayer(features[2], d // 4, w // 4, h // 4),
-                                     SmoothLayer(features[1], d // 2, w // 2, h // 2),
-                                     SmoothLayer(features[0], d)])
         self.upcat = nn.ModuleList([self.upcat_4,
                                     self.upcat_3,
                                     self.upcat_2,
@@ -191,19 +176,11 @@ class SmoothUNetDecoder(BasicUNetDecoder):
         if embeddings is not None:
             x4 += embeddings[4]
         
-        # x4 = self.smooth[0](x4)
         u4 = self.upcat[0](x4, x3, t_emb)
-        
-        # u4 = self.smooth[1](u4)
         u3 = self.upcat[1](u4, x2, t_emb)
-        
-        # u3 = self.smooth[2](u3)
         u2 = self.upcat[2](u3, x1, t_emb)
-        
-        # u2 = self.smooth[3](u2)
         u1 = self.upcat[3](u2, x0, t_emb)
 
-        # u1 = self.smooth[4](u1)
         logits = self.final_conv(u1)
         return logits
 

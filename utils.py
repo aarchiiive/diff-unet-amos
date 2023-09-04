@@ -1,5 +1,6 @@
 import os
 import glob 
+import yaml
 import argparse
 from prettytable import PrettyTable
 from collections import OrderedDict
@@ -13,62 +14,6 @@ from dataloader.amosloader import AMOSDataset
 from models.diff_unet import DiffUNet
 from models.smooth_diff_unet import SmoothDiffUNet
 
-
-def parse_args(mode="train", project_name="diff-unet"):
-    parser = argparse.ArgumentParser()
-    
-    # Common settings
-    parser.add_argument("--model_name", type=str, default="smooth_diff_unet",
-                        help="Name of the model type")
-    parser.add_argument("--image_size", type=int, default=256, 
-                        help="Image size")
-    parser.add_argument("--spatial_size", type=int, default=96, 
-                        help="Spatial size")
-    parser.add_argument("--num_classes", type=int, default=16, 
-                        help="Number of classes")
-    parser.add_argument("--device", type=str, default="cuda:1",
-                        help="Device for training (e.g., 'cuda:0', 'cpu')")
-    parser.add_argument("--model_path", type=str, default="logs/smoothing-encoder/weights/epoch_474.pt",
-                        help="Path to the checkpoint for pretrained weights")
-    parser.add_argument("--pretrained", action="store_true", 
-                        help="Use pretrained model")
-    parser.add_argument("--project_name", type=str, default=project_name, 
-                        help="Project name for WandB logging")
-    parser.add_argument("--wandb_name", type=str, default="smoothing-encoder", 
-                        help="Name for WandB logging")
-    parser.add_argument("--use_wandb", action="store_true", default=True, # default=False,
-                        help="Use Weights & Biases for logging")
-    parser.add_argument("--use_amp", action="store_true", default=True, # default=False,
-                        help="Enable Automatic Mixed Precision (AMP)")
-    
-    if mode == "train":
-        # Training settings
-        parser.add_argument("--log_dir", type=str,
-                            help="Directory to store log files")
-        parser.add_argument("--max_epochs", type=int, default=2000,
-                            help="Maximum number of training epochs")
-        parser.add_argument("--batch_size", type=int, default=10,
-                            help="Batch size for training")
-        parser.add_argument("--num_workers", type=int, default=2,
-                            help="Number of parallel workers for dataloader")
-        parser.add_argument("--loss_combine", type=str, default='plus',
-                            help="Method for combining multiple losses")
-        parser.add_argument("--val_freq", type=int, default=20000,
-                            help="Validation frequency (number of iterations)")
-        parser.add_argument("--num_gpus", type=int, default=5,
-                            help="Number of GPUs to use for training")
-        parser.add_argument("--use_cache", action="store_true", default=False, # default=False,
-                            help="Enable caching")
-    
-    args = parser.parse_args()
-    
-    table = PrettyTable(["Argument", "Value"])
-    for arg, value in args.__dict__.items():
-        table.add_row([arg, value])
-    
-    print(table)
-    
-    return args
 
 def load_model(model_name, **kwargs):
     if model_name == "diff_unet":
@@ -137,13 +82,18 @@ def get_amosloader(data_dir, image_size=256, spatial_size=96, num_samples=1, mod
         paired.append(pair)
         
     data["val"]["files"] = paired
-        
     train_transform = transforms.Compose(
         [   
             transforms.ScaleIntensityRanged(
                 keys=["image"], a_min=-175, a_max=250.0, b_min=0, b_max=1.0, clip=True
             ),
             transforms.CropForegroundd(keys=["image", "label"], source_key="image"),
+            transforms.RandScaleCrop(roi_scale=[0.75, 0.8, 0.85, 0.9, 0.95, 1.0]),
+            transforms.Resized(
+                keys=["image", "label"],
+                spatial_size=(spatial_size, image_size, image_size),
+            ),
+            # transforms.ResizeWithPadOrCrop(roi_size=(spatial_size, image_size, image_size)),
             transforms.RandCropByPosNegLabeld(
                 keys=["image", "label"],
                 label_key="label",
@@ -155,14 +105,14 @@ def get_amosloader(data_dir, image_size=256, spatial_size=96, num_samples=1, mod
                 image_threshold=0,
             ),
             
-            transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=0),
-            transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=1),
-            transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=2),
-            transforms.RandRotate90d(keys=["image", "label"], prob=0.2, max_k=3),
+            # transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=0),
+            # transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=1),
+            # transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=2),
 
+            transforms.RandRotate90d(keys=["image", "label"], prob=0.2, max_k=3),
             transforms.RandScaleIntensityd(keys="image", factors=0.1, prob=0.1),
             transforms.RandShiftIntensityd(keys="image", offsets=0.1, prob=0.1),
-            transforms.ToTensord(keys=["image", "label"],),
+            transforms.ToTensord(keys=["image", "label"]),
         ]
     )
     
@@ -179,16 +129,6 @@ def get_amosloader(data_dir, image_size=256, spatial_size=96, num_samples=1, mod
 
     test_transform = transforms.Compose(
         [   
-            transforms.RandCropByPosNegLabeld(
-                keys=["image", "label"],
-                label_key="label",
-                spatial_size=(spatial_size, image_size, image_size),
-                pos=1,
-                neg=1,
-                num_samples=num_samples,
-                image_key="image",
-                image_threshold=0,
-            ),
             transforms.ScaleIntensityRanged(
                 keys=["image"], a_min=-175, a_max=250.0, b_min=0, b_max=1.0, clip=True
             ),            
@@ -251,3 +191,72 @@ def get_amosloader(data_dir, image_size=256, spatial_size=96, num_samples=1, mod
         loader = [train_dataset, val_dataset, test_dataset]
     
     return loader
+
+def parse_args(mode="train", project_name="diff-unet"):
+    parser = argparse.ArgumentParser()
+    
+    # Common settings
+    parser.add_argument("--config", type=str, required=True,
+                        help="Path to the YAML configuration file")
+    parser.add_argument("--model_name", type=str, default="smooth_diff_unet", # "diff_unet",
+                        help="Name of the model type")
+    parser.add_argument("--image_size", type=int, default=96, 
+                        help="Image size")
+    parser.add_argument("--spatial_size", type=int, default=96, 
+                        help="Spatial size")
+    parser.add_argument("--num_classes", type=int, default=16, 
+                        help="Number of classes")
+    parser.add_argument("--device", type=str, default="cuda:0",
+                        help="Device for training (e.g., 'cuda:0', 'cpu')")
+    parser.add_argument("--model_path", type=str, default=None, # "logs/amos/weights/epoch_800.pt",
+                        help="Path to the checkpoint for pretrained weights")
+    parser.add_argument("--pretrained", action="store_true", 
+                        help="Use pretrained model")
+    parser.add_argument("--project_name", type=str, default=project_name, 
+                        help="Project name for WandB logging")
+    parser.add_argument("--wandb_name", type=str, default="diff-unet", 
+                        help="Name for WandB logging")
+    parser.add_argument("--use_wandb", action="store_true", default=False, # default=False,
+                        help="Use Weights & Biases for logging")
+    parser.add_argument("--use_amp", action="store_true", default=True, # default=False,
+                        help="Enable Automatic Mixed Precision (AMP)")
+    
+    if mode == "train":
+        # Training settings
+        parser.add_argument("--log_dir", type=str, default="test",
+                            help="Directory to store log files")
+        parser.add_argument("--max_epochs", type=int, default=2000,
+                            help="Maximum number of training epochs")
+        parser.add_argument("--batch_size", type=int, default=1,
+                            help="Batch size for training")
+        parser.add_argument("--num_workers", type=int, default=2,
+                            help="Number of parallel workers for dataloader")
+        parser.add_argument("--loss_combine", type=str, default='plus',
+                            help="Method for combining multiple losses")
+        parser.add_argument("--val_freq", type=int, default=20000,
+                            help="Validation frequency (number of iterations)")
+        parser.add_argument("--num_gpus", type=int, default=1,
+                            help="Number of GPUs to use for training")
+        parser.add_argument("--use_cache", action="store_true", default=False, # default=False,
+                            help="Enable caching")
+    elif mode == "test":
+        parser.add_argument("--epoch", type=int, default=800,
+                            help="Saved epoch when training")
+    
+    args = parser.parse_args()
+    
+    with open(args.config, "r") as f:
+        config = yaml.safe_load(f)
+        args = argparse.Namespace(**config)
+        
+    table = PrettyTable(["Argument", "Value"])
+    for arg, value in args.__dict__.items():
+        table.add_row([arg, value])
+    
+    print(table)
+    
+    return args
+
+if __name__ == "__main__":
+    args = parse_args()
+    

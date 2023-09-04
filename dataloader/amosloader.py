@@ -164,33 +164,19 @@ class AMOSDataset(Dataset):
             label = torch.tensor(label)
             raw_label = torch.tensor(raw_label)
             
-            # # (D, W, H) -> (H, W, D)
-            # image = torch.transpose(image, 0, 2).contiguous()
-            # label = torch.transpose(label, 0, 2).contiguous()
-            # raw_label = torch.transpose(raw_label, 0, 2).contiguous()
-            
-            if self.padding:
-                _, _, d = image.shape
+            # if self.padding:
+            #     _, _, d = image.shape
                 
-                if self.spatial_size > d: # add padding
-                    p = (self.spatial_size - d) // 2
-                    pad = (p, p) if d % 2 == 0 else (p, p+1)
-                    image = F.pad(image, pad, "constant")
-                    label = F.pad(label, pad, "constant")
-                elif self.spatial_size < d: # resize -> reducing depth
-                    image = F.interpolate(image, size=(self.spatial_size), mode='nearest')
-                    label = F.interpolate(label, size=(self.spatial_size), mode='nearest')
+            #     if self.spatial_size > d: # add padding
+            #         p = (self.spatial_size - d) // 2
+            #         pad = (p, p) if d % 2 == 0 else (p, p+1)
+            #         image = F.pad(image, pad, "constant")
+            #         label = F.pad(label, pad, "constant")
+            #     elif self.spatial_size < d: # resize -> reducing depth
+            #         image = F.interpolate(image, size=(self.spatial_size), mode='nearest')
+            #         label = F.interpolate(label, size=(self.spatial_size), mode='nearest')
                     
-                _, _, d = raw_label.shape
-                 
-                if self.spatial_size > d: # add padding
-                    p = (self.spatial_size - d) // 2
-                    pad = (p, p) if d % 2 == 0 else (p, p+1)
-                    raw_label = F.pad(raw_label, pad, "constant")
-                elif self.spatial_size < d: # resize -> reducing depth
-                    raw_label = F.interpolate(raw_label, size=(self.spatial_size), mode='nearest')
-
-            # # (H, W, D) -> (D, W, H)
+            # (H, W, D) -> (D, W, H)
             image = torch.transpose(image, 0, 2).contiguous()
             label = torch.transpose(label, 0, 2).contiguous()
             raw_label = torch.transpose(raw_label, 0, 2).contiguous()
@@ -198,7 +184,6 @@ class AMOSDataset(Dataset):
             if self.resize:
                 image = self.resize(image)
                 label = self.resize(label)
-                raw_label = self.resize(raw_label)
                 
             image = image.unsqueeze(0)
             label = label.unsqueeze(0)
@@ -234,7 +219,6 @@ class AMOSDataset(Dataset):
                 
                 torch.save(img, os.path.join(image_dir, f"{patient}.pt"))
                 torch.save(label, os.path.join(label_dir, f"{patient}.pt"))
-    
         
     def __len__(self):
         return len(self.data_list)
