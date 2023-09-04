@@ -63,13 +63,11 @@ class AMOSTester(Engine):
 
     def validation_step(self, batch, filename):
         image, label = self.get_input(batch)    
-        print(image.shape)
         
         output = self.window_infer(image, self.model, pred_type="ddim_sample")
         output = torch.sigmoid(output)
         output = (output > 0.5).float()
-
-        d, w, h = label.shape[2], label.shape[3], label.shape[4]
+        _, _, d, w, h = label.shape
 
         if self.use_wandb:
             vis_data = self.tensor2images(image, label, output, int(d * 0.75)) # put appropriate index
@@ -79,36 +77,39 @@ class AMOSTester(Engine):
         # target = label.cpu().numpy()
 
         dices = OrderedDict({v : 0 for v in self.class_names.values()})
-        hd = []
+        # hd = []
         
         for i in range(self.num_classes):
             pred = output[:, i]
             gt = label[:, i]
 
-            if pred.sum() > 0 and gt.sum() > 0:
+            if torch.sum(pred) > 0 and torch.sum(gt) > 0:
                 dice = dice_score(pred, gt, i)
-                hd95 = hd95_score(pred, gt, i)
-            elif pred.sum() > 0 and gt.sum()==0:
+                # hd95 = hd95_score(pred, gt, i)
+            elif torch.sum(pred) > 0 and torch.sum(gt) == 0:
                 dice = 1
-                hd95 = 0
+                # hd95 = 0
             else:
                 dice = 0
-                hd95 = 0
-
-            dices[self.class_names[i]] = dice
-            hd.append(hd95)
+                # hd95 = 0
+            
+            if isinstance(dice, int):
+                dices[self.class_names[i]] = dice
+            else:
+                dices[self.class_names[i]] = dice.item()
+            # hd.append(hd95)
         
         all_m = []
         for d in dices:
             all_m.append(d)
-        for h in hd:
-            all_m.append(h)
+        # for h in hd:
+        #     all_m.append(h)
         
         mean_dice = sum(dices.values()) / self.num_classes
-        mean_hd95 = sum(hd) / self.num_classes
+        # mean_hd95 = sum(hd) / self.num_classes
         
         print(f"mean_dice : {mean_dice:.4f}")
-        print(f"mean_hd95 : {mean_hd95:.4f}")
+        # print(f"mean_hd95 : {mean_hd95:.4f}")
         
         if self.use_wandb:
             self.log_plot(vis_data, mean_dice, dices, filename)
@@ -121,6 +122,7 @@ class AMOSTester(Engine):
         val_loader = self.get_dataloader(val_dataset, batch_size=1, shuffle=False)
         val_outputs = []
         self.model.eval()
+        
         with torch.cuda.amp.autocast(self.use_amp):
             for idx, (batch, filename) in tqdm(enumerate(val_loader), total=len(val_loader)):
                 batch = batch[0]
@@ -132,43 +134,46 @@ class AMOSTester(Engine):
                 with torch.no_grad():
                     val_out = self.validation_step(batch, filename[0])
                     assert val_out is not None 
-
-                return_list = False
-                val_outputs.append(val_out)
                 
-            if isinstance(val_out, list) or isinstance(val_out, tuple):
-                return_list = True
+                self.global_step += 1
+            #     return_list = False
+            #     val_outputs.append(val_out)
+                
+            # if isinstance(val_out, list) or isinstance(val_out, tuple):
+            #     return_list = True
 
-            val_outputs = torch.tensor(val_outputs)
-            if not return_list:
-                length = 0
-                v_sum = 0.0
-                for v in val_outputs:
-                    if not torch.isnan(v):
-                        v_sum += v
-                        length += 1
+            # val_outputs = torch.tensor(val_outputs)
+            # if not return_list:
+            #     length = 0
+            #     v_sum = 0.0
+            #     for v in val_outputs:
+            #         if not torch.isnan(v):
+            #             v_sum += v
+            #             length += 1
 
-                if length == 0:
-                    v_sum = 0
-                else :
-                    v_sum = v_sum / length             
-            else :
-                num_val = len(val_outputs[0])
-                length = [0.0 for i in range(num_val)]
-                v_sum = [0.0 for i in range(num_val)]
+            #     if length == 0:
+            #         v_sum = 0
+            #     else :
+            #         v_sum = v_sum / length             
+            # else :
+            #     num_val = len(val_outputs[0])
+            #     length = [0.0 for i in range(num_val)]
+            #     v_sum = [0.0 for i in range(num_val)]
 
-                for v in val_outputs:
-                    for i in range(num_val):
-                        if not torch.isnan(v[i]):
-                            v_sum[i] += v[i]
-                            length[i] += 1
+            #     for v in val_outputs:
+            #         for i in range(num_val):
+            #             if not torch.isnan(v[i]):
+            #                 v_sum[i] += v[i]
+            #                 length[i] += 1
 
-                for i in range(num_val):
-                    if length[i] == 0:
-                        v_sum[i] = 0
-                    else :
-                        v_sum[i] = v_sum[i] / length[i]
+            #     for i in range(num_val):
+            #         if length[i] == 0:
+            #             v_sum[i] = 0
+            #         else :
+            #             v_sum[i] = v_sum[i] / length[i]
+                
             
+        
         if self.use_wandb: wandb.log({"table": self.table})    
 
         return v_sum, val_outputs

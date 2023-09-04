@@ -36,7 +36,7 @@ def parse_args(mode="train", project_name="diff-unet"):
                         help="Project name for WandB logging")
     parser.add_argument("--wandb_name", type=str, default="smoothing-encoder", 
                         help="Name for WandB logging")
-    parser.add_argument("--use_wandb", action="store_true", default=False, # default=False,
+    parser.add_argument("--use_wandb", action="store_true", default=True, # default=False,
                         help="Use Weights & Biases for logging")
     parser.add_argument("--use_amp", action="store_true", default=True, # default=False,
                         help="Enable Automatic Mixed Precision (AMP)")

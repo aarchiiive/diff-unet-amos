@@ -47,16 +47,11 @@ class SmoothLayer(nn.Module):
         self.weights = nn.Parameter(torch.randn(in_features, d, d, d) * 0.1)
         
     def forward(self, x: torch.Tensor):
-        print("x :", x.shape)
         p = self.p
         _x = F.pad(x.clone(), self.padding, "constant", 0)
         laplacian = -6 * _x
         for shift in self.shifts:
             laplacian = laplacian + torch.roll(_x, shifts=shift, dims=self.dims)
-        
-        print("x :", x.shape)
-        print("laplacian :", laplacian.shape)
-        print("self.weights :", self.weights.shape)
         
         laplacian = laplacian[..., p:-p, p:-p, p:-p] * self.weights
         x = x + laplacian
