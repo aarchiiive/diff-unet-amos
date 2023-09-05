@@ -15,19 +15,12 @@ class FFParser(nn.Module):
     def forward(self, x, spatial_size=None):
         B, C, D, H, W = x.shape
         assert H == W, "height and width are not equal"
-        print("="*80)
-        print("FFParser")
-        # x = x.view(B, a, b, C)
+        
         x = x.to(torch.float32)
-        print("x :", x.shape)
         x = torch.fft.rfft2(x, dim=(3, 4), norm='ortho')
-        print("x :", x.shape)
         weight = torch.view_as_complex(self.complex_weight)
-        print("weight :", weight.shape)
         x = x * weight
         x = torch.fft.irfft2(x, s=(H, W), dim=(3, 4), norm='ortho')
-        print("x :", x.shape)
         x = x.reshape(B, C, D, H, W)
-        print("x :", x.shape)
-        print("="*80)
+        
         return x

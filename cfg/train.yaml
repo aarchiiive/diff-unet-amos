@@ -6,7 +6,7 @@ device: "cuda:0"
 model_path: null  # "logs/amos/weights/epoch_800.pt"
 max_epochs: 2000
 val_freq: 20000
-batch_size: 10
+batch_size: 5
 num_workers: 2
 num_gpus: 5
 project_name: "diff-unet"
