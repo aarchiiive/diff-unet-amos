@@ -1,5 +1,5 @@
 model_name: "smooth_diff_unet"  # "diff_unet"
-image_size: 96
+image_size: 256
 spatial_size: 96
 num_classes: 16
 device: "cuda:0"
@@ -11,7 +11,7 @@ num_workers: 2
 num_gpus: 5
 project_name: "diff-unet"
 wandb_name: null
-log_dir: "smoothing-encoder-fft"
+log_dir: "smoothing-encoder-fft-2"
 loss_combine: "plus"
 pretrained: true
 use_wandb: true  # false

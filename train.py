@@ -225,6 +225,7 @@ class AMOSTrainer(Engine):
                 
             self.scheduler.step()
             self.log("loss", running_loss / len(loader))
+            self.log("epoch_loss", running_loss / len(loader), step=epoch)
                     
         if (epoch + 1) % self.save_freq == 0:
             save_model(self.model,

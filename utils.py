@@ -95,10 +95,10 @@ def get_amosloader(data_dir, image_size=256, spatial_size=96, num_samples=1, mod
                 roi_scale=[0.75, 0.85, 0.95],
                 random_size=False
             ),
-            transforms.Resized(
-                keys=["image", "label"],
-                spatial_size=(spatial_size, image_size, image_size),
-            ),
+            # transforms.Resized(
+            #     keys=["image", "label"],
+            #     spatial_size=(spatial_size, image_size, image_size),
+            # ),
             transforms.RandCropByPosNegLabeld(
                 keys=["image", "label"],
                 label_key="label",
@@ -110,11 +110,11 @@ def get_amosloader(data_dir, image_size=256, spatial_size=96, num_samples=1, mod
                 image_threshold=0,
             ),
             
-            # transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=0),
-            # transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=1),
-            # transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=2),
+            transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=0),
+            transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=1),
+            transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=2),
 
-            # transforms.RandRotate90d(keys=["image", "label"], prob=0.2, max_k=3),
+            transforms.RandRotate90d(keys=["image", "label"], prob=0.2, max_k=3),
             transforms.RandScaleIntensityd(keys="image", factors=0.1, prob=0.1),
             transforms.RandShiftIntensityd(keys="image", offsets=0.1, prob=0.1),
             transforms.ToTensord(keys=["image", "label"]),
