@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from models.diff_unet import DiffUNet
+from layers.ffparser import FFParser
 from layers.basic_unet import BasicUNetEncoder
 from layers.basic_unet_denoise import get_timestep_embedding, nonlinearity, BasicUNetDecoder
 
@@ -89,11 +90,13 @@ class SmoothUNetEncoder(BasicUNetEncoder):
         d = spatial_size
         
         self.smoothing = smoothing
-        # self.smooth = nn.ModuleList([SmoothLayer(ndims, p) for _ in range(4)])
-        self.smooth = nn.ModuleList([SmoothLayer(features[0], d, w, h),
-                                     SmoothLayer(features[1], d // 2, w // 2, h // 2),
-                                     SmoothLayer(features[2], d // 4, w // 4, h // 4),
-                                     SmoothLayer(features[3], d // 8, w // 8, h // 8)])
+        self.smooth = [SmoothLayer(features[0], d, w, h)]
+        self.ffparser = [FFParser(features[0], d, w, h)]
+        for i, f in enumerate(features[1:4]):
+            self.smooth.append(SmoothLayer(f, d // (2**(i+1)), w // (2**(i+1)), h // (2**(i+1))))
+            self.ffparser.append(FFParser(f, d // (2**(i+1)), w // (2**(i+1)), h // (2**(i+1))))
+        self.smooth = nn.ModuleList(self.smooth)
+        self.ffparser = nn.ModuleList(self.ffparser)
         self.down = nn.ModuleList([self.down_1,
                                    self.down_2,
                                    self.down_3,
@@ -101,9 +104,11 @@ class SmoothUNetEncoder(BasicUNetEncoder):
         
     def forward(self, x: torch.Tensor):
         _x = [self.conv_0(x)]
-        for i, (smooth, down) in enumerate(zip(self.smooth, self.down)):
-            if i == 0: _x.append(down(_x[i]))
-            else: _x.append(down(smooth(_x[i])))
+        
+        for i in range(4):
+            s = self.smooth[i](_x[i])
+            w = self.ffparser[i](s)
+            _x.append(self.down[i](s * w))
         
         return _x
 
