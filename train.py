@@ -19,6 +19,8 @@ from light_training.utils.lr_scheduler import LinearWarmupCosineAnnealingLR
 
 from engine import Engine
 from utils import parse_args, get_data_path, get_dataloader
+from losses.loss import BoundaryLoss
+from losses.utils import dist_map_transform
 
 set_determinism(123)
 
@@ -94,6 +96,8 @@ class Trainer(Engine):
         self.mse = nn.MSELoss()
         self.bce = nn.BCEWithLogitsLoss()
         self.dice_loss = DiceLoss(sigmoid=True)
+        self.boundary_loss = BoundaryLoss(num_classes)
+        self.dist_transform = dist_map_transform([spatial_size, image_size, image_size], num_classes)
         
         if model_path is not None:
             self.load_checkpoint(model_path)
@@ -260,9 +264,10 @@ class Trainer(Engine):
         loss_dice = self.dice_loss(pred_xstart, label)
         loss_bce = self.bce(pred_xstart, label)
         loss_mse = self.mse(torch.sigmoid(pred_xstart), label)
+        loss_boundary = self.boundary_loss(torch.sigmoid(pred_xstart), self.dist_transform(label))
 
         if self.loss_combine == 'plus':
-            loss = loss_dice + loss_bce + loss_mse
+            loss = loss_dice + loss_bce + loss_mse + loss_boundary
 
         return loss 
     
