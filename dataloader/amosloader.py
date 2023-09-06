@@ -31,6 +31,7 @@ class AMOSDataset(Dataset):
                  data_list: list, 
                  image_size: int = 256,
                  spatial_size: int = 96,
+                 pad: int = 2,
                  padding: bool = True,
                  transform: transforms = None, 
                  data_path: Optional[str] = None, 
@@ -48,6 +49,8 @@ class AMOSDataset(Dataset):
         self.data_dict = data_dict
         self.mode = mode
         self.use_cache = use_cache
+        
+        self.pad = (pad, pad)
         
         assert mode != "train" or  mode != "val" or  mode != "test", \
             "Key must be one of these keywords : train / val / test"
@@ -90,7 +93,10 @@ class AMOSDataset(Dataset):
             #     elif self.spatial_size < d: # resize -> reducing depth
             #         image = F.interpolate(image, size=(self.spatial_size), mode='nearest')
             #         label = F.interpolate(label, size=(self.spatial_size), mode='nearest')
-                    
+            
+            image = F.pad(image, self.pad, "constant", 0)
+            label = F.pad(label, self.pad, "constant", 0)
+            
             # (H, W, D) -> (D, W, H)
             image = torch.transpose(image, 0, 2).contiguous()
             label = torch.transpose(label, 0, 2).contiguous()
