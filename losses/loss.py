@@ -7,25 +7,25 @@ from functools import partial
 from operator import itemgetter
 
 import torch
+from torch.nn.modules.loss import _Loss
 from torch import Tensor
 from torchvision import transforms
 
 from .utils import simplex, one_hot, probs2one_hot, class2one_hot, one_hot2dist, one_hot2hd_dist
 
-class BoundaryLoss:
+class BoundaryLoss(_Loss):
     def __init__(self, num_classes: int):
+        super().__init__()
         # Self.idc is used to filter out some classes of the target mask. Use fancy indexing
         self.num_classes = num_classes
 
-    def __call__(self, probs: Tensor, dist_maps: Tensor) -> Tensor:
-        # assert simplex(probs)
-        # assert not one_hot(dist_maps)
-
+    def forward(self, probs: Tensor, dist_maps: Tensor) -> Tensor:
         loss = 0 
-        for c in self.num_classes:
+        dist_maps = dist_maps.to(probs.device)
+        for c in range(self.num_classes):
             pc = probs[:, c, ...].type(torch.float32)
             dc = dist_maps[:, c, ...].type(torch.float32)
-            loss += torch.einsum("bcdwh,bcdwh->bcdwh", pc, dc).mean()
+            loss += torch.einsum("bkwh,bkwh->bkwh", pc, dc).mean()
 
         return loss / self.num_classes
 

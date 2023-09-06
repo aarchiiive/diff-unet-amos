@@ -8,6 +8,7 @@ from medpy.metric.binary import dc, hd95
 
 import torch 
 import torch.nn as nn 
+import torch.nn.functional as F
 import torch.multiprocessing as mp
 from torch.nn.parallel import DataParallel, DistributedDataParallel
 
@@ -97,7 +98,7 @@ class Trainer(Engine):
         self.bce = nn.BCEWithLogitsLoss()
         self.dice_loss = DiceLoss(sigmoid=True)
         self.boundary_loss = BoundaryLoss(num_classes)
-        self.dist_transform = dist_map_transform([spatial_size, image_size, image_size], num_classes)
+        self.dist_transform = dist_map_transform([1.0, 1.0, 1.0, 1.0], num_classes)
         
         if model_path is not None:
             self.load_checkpoint(model_path)
@@ -263,11 +264,11 @@ class Trainer(Engine):
 
         loss_dice = self.dice_loss(pred_xstart, label)
         loss_bce = self.bce(pred_xstart, label)
-        loss_mse = self.mse(torch.sigmoid(pred_xstart), label)
-        loss_boundary = self.boundary_loss(torch.sigmoid(pred_xstart), self.dist_transform(label))
+        # loss_mse = self.mse(torch.sigmoid(pred_xstart), label)
+        loss_boundary = self.boundary_loss(F.softmax(pred_xstart), self.dist_transform(label))
 
         if self.loss_combine == 'plus':
-            loss = loss_dice + loss_bce + loss_mse + loss_boundary
+            loss = loss_dice + loss_bce + loss_boundary # + loss_mse
 
         return loss 
     

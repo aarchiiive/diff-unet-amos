@@ -1,22 +1,22 @@
 model_name: "diff_unet"  # "diff_unet"
 data_name: "msd" # "msd"
-image_size: 96
-spatial_size: 96
+image_size: 48
+spatial_size: 48
 num_classes: 3
 device: "cuda:0"
 model_path: null  # "logs/amos/weights/epoch_800.pt"
 max_epochs: 5000
 val_freq: 20000
 save_freq: 25
-batch_size: 10
+batch_size: 2
 num_workers: 2
-num_gpus: 5
+num_gpus: 1
 project_name: "diff-unet"
 wandb_name: null
-log_dir: "diff-unet-msd"
+log_dir: "test" # "diff-unet-msd"
 loss_combine: "plus"
 pretrained: true
-use_wandb: true  # false
+use_wandb: false  # false
 use_amp: false  # true
 use_cache: false  # true
 

@@ -274,7 +274,7 @@ def probs2one_hot(probs: Tensor) -> Tensor:
 
 def one_hot2dist(seg: np.ndarray, resolution: Tuple[float, float, float] = None,
                  dtype=None) -> np.ndarray:
-    assert one_hot(torch.tensor(seg), axis=0)
+    # assert one_hot(torch.tensor(seg), axis=0)
     K: int = len(seg)
 
     res = np.zeros_like(seg, dtype=dtype)
