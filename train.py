@@ -1,31 +1,33 @@
+from collections import OrderedDict
+
 import os
 import wandb
 from tqdm import tqdm
 import numpy as np
-from collections import OrderedDict
+from medpy.metric.binary import dc, hd95
 
 import torch 
 import torch.nn as nn 
 import torch.multiprocessing as mp
 from torch.nn.parallel import DataParallel, DistributedDataParallel
 
+from monai.data import DataLoader
 from monai.utils import set_determinism
 from monai.losses.dice import DiceLoss
 
 from light_training.utils.lr_scheduler import LinearWarmupCosineAnnealingLR
 
-from metric import *
 from engine import Engine
-from utils import parse_args, save_model, get_amosloader
-from dataset_path import data_dir
+from utils import parse_args, get_data_path, get_dataloader
 
 set_determinism(123)
 
         
-class AMOSTrainer(Engine):
+class Trainer(Engine):
     def __init__(
         self, 
         model_name="diff_unet",
+        data_name="amos",
         max_epochs=5000,
         batch_size=10, 
         image_size=256,
@@ -48,6 +50,7 @@ class AMOSTrainer(Engine):
     ):
         super().__init__(
             model_name=model_name, 
+            data_name=data_name,
             image_size=image_size,
             spatial_size=spatial_size,
             num_classes=num_classes, 
@@ -58,6 +61,7 @@ class AMOSTrainer(Engine):
             wandb_name=wandb_name,
             pretrained=pretrained,
             use_amp=use_amp,
+            use_cache=use_cache,
             use_wandb=use_wandb,
             mode="train",
         )
@@ -71,15 +75,16 @@ class AMOSTrainer(Engine):
         self.log_dir = os.path.join("logs", log_dir)
         self.use_cache = use_cache
         
+        self.local_rank = 0
         self.start_epoch = 0
         self.wandb_id = None
-        self.local_rank = 0
         self.weights_path = os.path.join(self.log_dir, "weights")
         self.auto_optim = True
         
         os.makedirs(self.log_dir, exist_ok=True)
         os.makedirs(self.weights_path, exist_ok=True)
-                
+        
+        self.set_dataloader()        
         self.model = self.load_model()
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=2e-4, weight_decay=1e-3)
         self.scheduler = LinearWarmupCosineAnnealingLR(self.optimizer,
@@ -103,6 +108,7 @@ class AMOSTrainer(Engine):
                            name=f"{wandb_name}",
                            config=self.__dict__)
             else:
+                assert self.wandb_id != 0
                 wandb.init(project=self.project_name, 
                            id=self.wandb_id, 
                            resume=True)
@@ -133,8 +139,18 @@ class AMOSTrainer(Engine):
         self.model.load_state_dict(temp_dict)
         
         print(f"Checkpoint loaded from {model_path}")
-
-    def train(self, train_dataset, val_dataset=None):
+        
+    def set_dataloader(self):
+        train_ds, val_ds = get_dataloader(data_path=get_data_path(self.data_name),
+                                          data_name=self.data_name,
+                                          image_size=self.image_size,
+                                          spatial_size=self.spatial_size,
+                                          mode="train", 
+                                          use_cache=self.use_cache)
+        self.dataloader = {"train": DataLoader(train_ds, batch_size=self.batch_size, shuffle=True),
+                           "val": DataLoader(val_ds, batch_size=1, shuffle=False)}
+        
+    def train(self):
         set_determinism(1234 + self.local_rank)
         print(f"check model parameter: {next(self.model.parameters()).sum()}")
         para = sum([np.prod(list(p.size())) for p in self.model.parameters()])
@@ -142,20 +158,17 @@ class AMOSTrainer(Engine):
         
         os.makedirs(self.log_dir, exist_ok=True)
 
-        train_loader = self.get_dataloader(train_dataset, batch_size=self.batch_size, shuffle=True)
-        val_loader = self.get_dataloader(val_dataset, batch_size=1, shuffle=False)
-            
         for epoch in range(self.start_epoch, self.max_epochs):
             self.epoch = epoch 
             
             with torch.cuda.amp.autocast(self.use_amp):
-                self.train_epoch(train_loader, epoch)
+                self.train_epoch(epoch)
                 
                 val_outputs = []
                 
                 if (epoch + 1) % self.val_freq == 0:
                     self.model.eval()
-                    for idx, (batch, filename) in tqdm(enumerate(val_loader), total=len(val_loader)):
+                    for batch, _ in tqdm(self.dataloader["val"], total=len(self.dataloader["val"])):
                         batch = {
                             x: batch[x].to(self.device)
                             for x in batch if isinstance(batch[x], torch.Tensor)
@@ -170,8 +183,8 @@ class AMOSTrainer(Engine):
                     val_outputs = torch.tensor(val_outputs)
 
                     num_val = len(val_outputs[0])
-                    length = [0.0 for i in range(num_val)]
-                    v_sum = [0.0 for i in range(num_val)]
+                    length = [0.0 for _ in range(num_val)]
+                    v_sum = [0.0 for _ in range(num_val)]
 
                     for v in val_outputs:
                         for i in range(num_val):
@@ -189,11 +202,11 @@ class AMOSTrainer(Engine):
                 
                 self.model.train()
 
-    def train_epoch(self, loader, epoch):
+    def train_epoch(self, epoch):
         self.model.train()
-        with tqdm(total=len(loader)) as t:
+        with tqdm(total=len(self.dataloader["train"])) as t:
             running_loss = 0
-            for idx, (batch, filename) in enumerate(loader):
+            for batch, _ in self.dataloader["train"]:
                 self.global_step += 1
                 self.optimizer.zero_grad()
                 t.set_description('Epoch %i' % epoch)
@@ -224,26 +237,24 @@ class AMOSTrainer(Engine):
                 t.update(1)
                 
             self.scheduler.step()
-            self.log("loss", running_loss / len(loader))
-            self.log("epoch_loss", running_loss / len(loader), step=epoch)
+            
+            self.loss = running_loss / len(self.dataloader["train"])
+            # self.log("loss", running_loss / len(self.dataloader["train"]))
+            self.log("loss", self.loss, step=epoch)
                     
         if (epoch + 1) % self.save_freq == 0:
-            save_model(self.model,
-                       self.optimizer,
-                       self.scheduler, 
-                       self.epoch,
-                       self.global_step,
-                       self.best_mean_dice,
-                       self.project_name,
-                       wandb.run.id,
-                       os.path.join(self.weights_path, f"epoch_{epoch+1}.pt"))
+            self.save_model(self.model,
+                            self.optimizer,
+                            self.scheduler, 
+                            self.epoch,
+                            os.path.join(self.weights_path, f"epoch_{epoch+1}.pt"))
 
     def training_step(self, batch):
         image, label = self.get_input(batch)
         
         x_start = label
         x_start = (x_start) * 2 - 1
-        x_t, t, noise = self.model(x=x_start, pred_type="q_sample")
+        x_t, t, _ = self.model(x=x_start, pred_type="q_sample")
         pred_xstart = self.model(x=x_t, step=t, image=image, pred_type="denoise")
 
         loss_dice = self.dice_loss(pred_xstart, label)
@@ -269,8 +280,8 @@ class AMOSTrainer(Engine):
             pred_c = output[:, i]
             target_c = target[:, i]
 
-            dices.append(dice_coef(pred_c, target_c))
-            # hd.append(hausdorff_distance_95(pred_c, target_c))
+            dices.append(dc(pred_c, target_c))
+            hd.append(hd95(pred_c, target_c))
         
         return dices
     
@@ -280,27 +291,18 @@ class AMOSTrainer(Engine):
 
         if mean_dice > self.best_mean_dice:
             self.best_mean_dice = mean_dice
-            save_model(self.model,
-                       self.optimizer,
-                       self.scheduler, 
-                       self.epoch,
-                       self.global_step,
-                       self.best_mean_dice,
-                       self.project_name,
-                       wandb.run.id,
-                       os.path.join(self.weights_path, f"best_{mean_dice:.4f}.pt"))
+            self.save_model(self.model,
+                            self.optimizer,
+                            self.scheduler, 
+                            self.epoch,
+                            os.path.join(self.weights_path, f"best_{mean_dice:.4f}.pt"))
 
         print(f"mean_dice : {mean_dice}")
-        self.log("mean_dice", mean_dice)
+        self.log("mean_dice", mean_dice, epoch)
 
 
 if __name__ == "__main__":
     args = parse_args()
 
-    trainer = AMOSTrainer(**vars(args))
-    train_ds, val_ds = get_amosloader(data_dir=data_dir,
-                                      image_size=args.image_size,
-                                      spatial_size=args.spatial_size,
-                                      mode="train", 
-                                      use_cache=args.use_cache)
-    trainer.train(train_dataset=train_ds, val_dataset=val_ds)
+    trainer = Trainer(**vars(args))
+    trainer.train()

@@ -6,23 +6,24 @@ from tqdm import tqdm
 from collections import OrderedDict
 
 from medpy.metric.binary import dc, hd95
+
+from monai.data import DataLoader
 from monai.utils import set_determinism
 
 from metric import *
 from engine import Engine
-from utils import parse_args, get_class_names, get_amosloader
-from dataset_path import data_dir
+from utils import parse_args, get_class_names, get_data_path, get_dataloader
 
 set_determinism(123)
         
-class AMOSTester(Engine):
+class Tester(Engine):
     def __init__(
         self, 
         model_path,
         model_name="smooth_diff_unet",
+        data_name="amos",
         image_size=256,
         spatial_size=96,
-        class_names=None,
         num_classes=16,
         epoch=800,
         device="cpu", 
@@ -33,10 +34,10 @@ class AMOSTester(Engine):
         use_wandb=True,
     ):
         super().__init__(
-            model_name=model_name, 
+            model_name=model_name,
+            data_name=data_name, 
             image_size=image_size,
             spatial_size=spatial_size,
-            class_names=class_names,
             num_classes=num_classes, 
             device=device,
             model_path=model_path,
@@ -75,6 +76,15 @@ class AMOSTester(Engine):
             
         print(f"Checkpoint loaded from {model_path}.....")
 
+    def set_dataloader(self):
+        dataset = get_dataloader(data_path=get_data_path(self.data_name),
+                                 data_name=self.data_name,
+                                 image_size=self.image_size,
+                                 spatial_size=self.spatial_size,
+                                 mode=self.mode, 
+                                 use_cache=self.use_cache)
+        self.dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
+
     def validation_step(self, batch, filename):
         image, label = self.get_input(batch)    
         
@@ -107,26 +117,24 @@ class AMOSTester(Engine):
                 hd95 = 0
                 
             dices[self.class_names[i]] = dice
-            # hds[self.class_names[i]] = hd95
+            hds[self.class_names[i]] = hd95
         
         mean_dice = sum(dices.values()) / self.num_classes
-        # mean_hd95 = sum(hds.values()) / self.num_classes
+        mean_hd95 = sum(hds.values()) / self.num_classes
         
         print(f"mean_dice : {mean_dice:.4f}")
-        # print(f"mean_hd95 : {mean_hd95:.4f}")
+        print(f"mean_hd95 : {mean_hd95:.4f}")
         
         if self.use_wandb:
             self.log_plot(vis_data, mean_dice, dices, filename)
             self.log("mean_dice", mean_dice)
-            # self.log("mean_hd95", mean_hd95)
+            self.log("mean_hd95", mean_hd95)
         
-        
-    def test(self, val_dataset):
-        val_loader = self.get_dataloader(val_dataset, batch_size=1, shuffle=False)
+    def test(self):
         self.model.eval()
         
         with torch.cuda.amp.autocast(self.use_amp):
-            for idx, (batch, filename) in tqdm(enumerate(val_loader), total=len(val_loader)):
+            for idx, (batch, filename) in tqdm(enumerate(self.dataloader), total=len(self.dataloader)):
                 batch = {
                     x: batch[x].to(self.device)
                     for x in batch if isinstance(batch[x], torch.Tensor)
@@ -140,13 +148,6 @@ class AMOSTester(Engine):
         if self.use_wandb: wandb.log({"table": self.table})    
 
 if __name__ == "__main__":
-    class_names = get_class_names("amos")
     args = parse_args()
-    
-    tester = AMOSTester(**vars(args), class_names=class_names)
-    test_ds = get_amosloader(data_dir=data_dir, 
-                             image_size=args.image_size, 
-                             spatial_size=args.spatial_size, 
-                             mode="test", 
-                             use_cache=False)
-    tester.test(test_ds)
+    tester = Tester(**vars(args))
+    tester.test()

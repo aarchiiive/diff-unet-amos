@@ -1,6 +1,7 @@
 import os
 import glob 
 import yaml
+import wandb
 import argparse
 from prettytable import PrettyTable
 from collections import OrderedDict
@@ -11,6 +12,7 @@ import torch.nn as nn
 from monai import transforms
 
 from dataloader.amosloader import AMOSDataset
+from dataloader.msdloader import MSDDataset
 from models.diff_unet import DiffUNet
 from models.smooth_diff_unet import SmoothDiffUNet
 
@@ -25,30 +27,11 @@ def load_model(model_name, **kwargs):
 
     return model
 
-def save_model(model, optimizer, scheduler, epoch, global_step, best_mean_dice, project_name, id, save_path, delete_symbol=None):
-    save_dir = os.path.dirname(save_path)
-
-    os.makedirs(save_dir, exist_ok=True)
-    # if delete_last_model is not None:
-    #     delete_last_model(save_dir, delete_symbol)
-    
-    if isinstance(model, nn.DataParallel):
-        model = model.module
-        
-    state = {
-        'model': model.state_dict(),
-        'optimizer': optimizer.state_dict(),
-        'scheduler': scheduler.state_dict(),
-        'epoch': epoch+1,
-        'global_step': global_step,
-        'best_mean_dice': best_mean_dice,
-        'project_name': project_name,
-        'id': id,
-    }
-    
-    torch.save(state, save_path)
-
-    print(f"model is saved in {save_path}")
+def get_data_path(name="amos"):
+    if name == "amos":
+        return "/home/song99/ws/datasets/AMOS"
+    elif name == "msd":
+        return "/home/song99/ws/datasets/MSD"
 
 def get_class_names(dataset="amos"):
     if dataset == "amos":
@@ -57,31 +40,7 @@ def get_class_names(dataset="amos"):
                             8: "arota", 9: "postcava", 10: "pancreas", 11: "right adrenal gland", 
                             12: "left adrenal gland", 13: "duodenum", 14: "bladder", 15: "prostate,uterus"})
 
-def get_amosloader(data_dir, image_size=256, spatial_size=96, num_samples=1, mode="train", use_cache=True):
-    data = {
-        "train" : 
-            {"images" : sorted(glob.glob(f"{data_dir}/imagesTr/*.nii.gz")),
-             "labels" : sorted(glob.glob(f"{data_dir}/labelsTr/*.nii.gz"))},
-        "val" : 
-            {"images" : sorted(glob.glob(f"{data_dir}/imagesVa/*.nii.gz")),
-             "labels" : sorted(glob.glob(f"{data_dir}/labelsVa/*.nii.gz"))},
-    }
-    
-    paired = []
-
-    for image_path, label_path in zip(data["train"]["images"], data["train"]["labels"]):
-        pair = [image_path, label_path]
-        paired.append(pair)
-    
-    data["train"]["files"] = paired
-    
-    paired = []
-
-    for image_path, label_path in zip(data["val"]["images"], data["val"]["labels"]):
-        pair = [image_path, label_path]
-        paired.append(pair)
-        
-    data["val"]["files"] = paired
+def get_dataloader(data_path, data_name, image_size=256, spatial_size=96, num_samples=1, mode="train", use_cache=True):
     train_transform = transforms.Compose(
         [   
             transforms.ScaleIntensityRanged(
@@ -95,10 +54,10 @@ def get_amosloader(data_dir, image_size=256, spatial_size=96, num_samples=1, mod
                 roi_scale=[0.75, 0.85, 0.95],
                 random_size=False
             ),
-            # transforms.Resized(
-            #     keys=["image", "label"],
-            #     spatial_size=(spatial_size, image_size, image_size),
-            # ),
+            transforms.Resized(
+                keys=["image", "label"],
+                spatial_size=(spatial_size, image_size, image_size),
+            ),
             transforms.RandCropByPosNegLabeld(
                 keys=["image", "label"],
                 label_key="label",
@@ -110,11 +69,11 @@ def get_amosloader(data_dir, image_size=256, spatial_size=96, num_samples=1, mod
                 image_threshold=0,
             ),
             
-            transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=0),
+            # transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=0),
             transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=1),
             transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=2),
 
-            transforms.RandRotate90d(keys=["image", "label"], prob=0.2, max_k=3),
+            # transforms.RandRotate90d(keys=["image", "label"], prob=0.2, max_k=3),
             transforms.RandScaleIntensityd(keys="image", factors=0.1, prob=0.1),
             transforms.RandShiftIntensityd(keys="image", offsets=0.1, prob=0.1),
             transforms.ToTensord(keys=["image", "label"]),
@@ -143,58 +102,68 @@ def get_amosloader(data_dir, image_size=256, spatial_size=96, num_samples=1, mod
             transforms.ToTensord(keys=["image", "raw_label"]),
         ]
     )
+    
+    data = {
+        "train" : 
+            {"images" : sorted(glob.glob(f"{data_path}/imagesTr/*.nii.gz")),
+             "labels" : sorted(glob.glob(f"{data_path}/labelsTr/*.nii.gz"))},
+        "val" : 
+            {"images" : sorted(glob.glob(f"{data_path}/imagesVa/*.nii.gz")),
+             "labels" : sorted(glob.glob(f"{data_path}/labelsVa/*.nii.gz"))},
+    }
+    
+    for p in ["train", "val"]:
+        paired = []
+        for image_path, label_path in zip(data[p]["images"], data[p]["labels"]):
+            pair = [image_path, label_path]
+            paired.append(pair)
+            
+        data[p]["files"] = paired
+    
+    if data_name == "amos":
+        _Dataset = AMOSDataset
+    elif data_name == "msd":
+        _Dataset = MSDDataset
+        
+    train_dataset = _Dataset(
+        data["train"]["files"], 
+        image_size=image_size,
+        spatial_size=spatial_size,
+        transform=train_transform, 
+        data_dir=data_path, 
+        data_dict=data,
+        mode="train",
+        use_cache=use_cache
+    )
+
+    val_dataset = _Dataset(
+        data["val"]["files"], 
+        image_size=image_size,
+        spatial_size=spatial_size,
+        transform=val_transform, 
+        data_dir=data_path, 
+        data_dict=data, 
+        mode="val",
+        use_cache=False
+    )
+        
+    test_dataset = _Dataset(
+        data["val"]["files"], 
+        image_size=image_size,
+        spatial_size=spatial_size,
+        transform=test_transform, 
+        data_dir=data_path, 
+        mode="test",
+        data_dict=data,
+        use_cache=False
+    )
 
     if mode == "train":
-        train_dataset = AMOSDataset(data["train"]["files"], 
-                                transform=train_transform, 
-                                data_dir=data_dir, 
-                                data_dict=data,
-                                mode="train",
-                                use_cache=use_cache)
-    
-        val_dataset = AMOSDataset(data["val"]["files"], 
-                            transform=val_transform, 
-                            data_dir=data_dir, 
-                            data_dict=data, 
-                            mode="val",
-                            use_cache=use_cache)
-
-        loader = [train_dataset, val_dataset]
-        
+        return [train_dataset, val_dataset]
     elif mode == "test":
-        test_dataset = AMOSDataset(data["val"]["files"], 
-                            transform=test_transform, 
-                            data_dir=data_dir, 
-                            data_dict=data,
-                            mode="test",
-                            use_cache=use_cache)
-        
         return test_dataset
     else:
-        train_dataset = AMOSDataset(data["train"]["files"], 
-                                transform=train_transform, 
-                                data_dir=data_dir, 
-                                data_dict=data,
-                                mode="train",
-                                use_cache=use_cache)
-    
-        val_dataset = AMOSDataset(data["val"]["files"], 
-                            transform=val_transform, 
-                            data_dir=data_dir, 
-                            data_dict=data, 
-                            mode="val",
-                            use_cache=use_cache)
-        
-        test_dataset = AMOSDataset(data["val"]["files"], 
-                            transform=test_transform, 
-                            data_dir=data_dir, 
-                            mode="test",
-                            data_dict=data,
-                            use_cache=use_cache)
-        
-        loader = [train_dataset, val_dataset, test_dataset]
-    
-    return loader
+        return [train_dataset, val_dataset, test_dataset]
 
 def parse_args():
     parser = argparse.ArgumentParser()

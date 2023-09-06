@@ -7,16 +7,19 @@ from scipy.ndimage import distance_transform_edt as eucl_distance
 from typing import Any, Callable, Iterable, List, Set, Tuple, TypeVar, Union, cast
 
 import torch
+import torch.nn as nn
 from torchvision import transforms
+
 from monai.data import DataLoader, ThreadDataLoader
 from monai.inferers import SlidingWindowInferer
-from utils import load_model
+from utils import load_model, get_class_names
 
 
 class Engine:
     def __init__(
         self,
         model_name="diff_unet", 
+        data_name="amos",
         image_size=256,
         spatial_size=96,
         class_names=None,
@@ -28,13 +31,15 @@ class Engine:
         wandb_name=None,
         pretrained=True,
         use_amp=True,
+        use_cache=True,
         use_wandb=True,
         mode="train",
     ):
         self.model_name = model_name
+        self.data_name = data_name
         self.image_size = image_size
         self.spatial_size = spatial_size
-        self.class_names = class_names
+        self.class_names = get_class_names(data_name)
         self.num_classes = num_classes
         self.device = torch.device(device)
         self.num_workers = num_workers
@@ -43,10 +48,12 @@ class Engine:
         self.wandb_name = wandb_name
         self.pretrained = pretrained
         self.use_amp = use_amp
+        self.use_cache = use_cache
         self.use_wandb = use_wandb
         self.mode = mode
         self.global_step = 0
         self.best_mean_dice = 0
+        self.loss = 0
         
         if isinstance(image_size, tuple):
             width = image_size[0]
@@ -64,10 +71,11 @@ class Engine:
             self.table = None # reserved
         
         self.scaler = torch.cuda.amp.GradScaler()
-        self.window_infer = SlidingWindowInferer(roi_size=[spatial_size, spatial_size, spatial_size],
+        self.window_infer = SlidingWindowInferer(roi_size=[spatial_size, width, height],
                                                  sw_batch_size=1,
                                                  overlap=0.6)
         self.tensor2pil = transforms.ToPILImage()
+        
         
     def load_checkpoint(self, model_path):
         pass
@@ -81,11 +89,45 @@ class Engine:
                           pretrained=self.pretrained,
                           mode=self.mode).to(self.device)
     
+    def save_model(
+        self,
+        model, 
+        optimizer, 
+        scheduler, 
+        epoch, 
+        save_path,
+    ):
+        save_dir = os.path.dirname(save_path)
+
+        os.makedirs(save_dir, exist_ok=True)
+        
+        if isinstance(model, nn.DataParallel):
+            model = model.module
+            
+        state = {
+            'model': model.state_dict(),
+            'optimizer': optimizer.state_dict(),
+            'scheduler': scheduler.state_dict(),
+            'epoch': epoch+1,
+            'loss': self.loss,
+            'global_step': self.global_step,
+            'best_mean_dice': self.best_mean_dice,
+            'project_name': self.project_name,
+            'id': wandb.run.id if self.use_wandb else 0,
+        }
+        
+        torch.save(state, save_path)
+
+        print(f"model is saved in {save_path}")
+    
     def get_dataloader(self, dataset, batch_size=1, shuffle=False):
         return DataLoader(dataset,
                           batch_size=batch_size,
                           shuffle=shuffle,
                           num_workers=self.num_workers)
+        
+    def set_dataloader(self):
+        pass
         
     def get_input(self, batch):
         image = batch["image"]

@@ -13,27 +13,30 @@
 from typing import Optional
 
 import os
-import pickle
-import numpy as np
+import glob
+import shutil
 from tqdm import tqdm 
 
 import nibabel
-import SimpleITK as sitk
+import numpy as np
+from sklearn.model_selection import train_test_split
 
 import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset 
+
 from monai import transforms
 
 
-class AMOSDataset(Dataset):
+class MSDDataset(Dataset):
     def __init__(self, 
                  data_list: list, 
                  image_size: int = 256,
                  spatial_size: int = 96,
+                 pad: int = 2,
                  padding: bool = True,
                  transform: transforms = None, 
-                 data_path: Optional[str] = None, 
+                 data_dir: Optional[str] = None, 
                  data_dict: Optional[dict] = None, 
                  mode: Optional[str] = "train",
                  use_cache: Optional[bool] = True) -> None:
@@ -44,10 +47,12 @@ class AMOSDataset(Dataset):
         self.image_size = image_size
         self.spatial_size = spatial_size
         self.padding = padding
-        self.data_path = data_path
+        self.data_dir = data_dir
         self.data_dict = data_dict
         self.mode = mode
         self.use_cache = use_cache
+        
+        self.pad = (pad, pad)
         
         assert mode != "train" or  mode != "val" or  mode != "test", \
             "Key must be one of these keywords : train / val / test"
@@ -63,7 +68,7 @@ class AMOSDataset(Dataset):
     def save_cache(self):
         for d in tqdm(self.data_list):
             _ = self.read_data(d)
-            
+        
     def read_data(self, data_path):
         if data_path[0] in self.cache.keys():
             return self.cache[data_path[0]]
@@ -90,7 +95,10 @@ class AMOSDataset(Dataset):
             #     elif self.spatial_size < d: # resize -> reducing depth
             #         image = F.interpolate(image, size=(self.spatial_size), mode='nearest')
             #         label = F.interpolate(label, size=(self.spatial_size), mode='nearest')
-                    
+            
+            image = F.pad(image, self.pad, "constant", 0)
+            label = F.pad(label, self.pad, "constant", 0)
+            
             # (H, W, D) -> (D, W, H)
             image = torch.transpose(image, 0, 2).contiguous()
             label = torch.transpose(label, 0, 2).contiguous()
@@ -148,4 +156,32 @@ class AMOSDataset(Dataset):
         return data, self.data_list[i][0]
             
 
+if __name__ == "__main__":
+    data_path = "/home/song99/ws/datasets/MSD"
+    
+    data = {
+        "train" : 
+            {"images" : sorted(glob.glob(f"{data_path}/imagesTr/*.nii.gz")),
+             "labels" : sorted(glob.glob(f"{data_path}/labelsTr/*.nii.gz"))},
+        "val" : 
+            {"images" : sorted(glob.glob(f"{data_path}/imagesVa/*.nii.gz")),
+             "labels" : sorted(glob.glob(f"{data_path}/labelsVa/*.nii.gz"))},
+    }
+    
+    image_path = os.path.join(data_path, "imagesVa")
+    label_path = os.path.join(data_path, "labelsVa")
+    
+    os.makedirs(image_path, exist_ok=True)
+    os.makedirs(label_path, exist_ok=True)
 
+    X_train, X_test, y_train, y_test = train_test_split(data["train"]["images"],
+                                                        data["train"]["labels"],
+                                                        test_size=0.214, random_state=16)
+    
+    print(len(X_train))
+    print(len(X_test))
+    
+    # for x in X_test:
+    #     shutil.move(x, os.path.join(image_path, os.path.basename(x)))
+    # for y in y_test:
+    #     shutil.move(y, os.path.join(label_path, os.path.basename(y)))

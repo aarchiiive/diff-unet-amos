@@ -1,0 +1,14 @@
+model_name: "smooth_diff_unet"  # "diff_unet"
+data_name: "msd"
+image_size: 96
+spatial_size: 96
+num_classes: 16
+device: "cuda:1"
+model_path: "logs/smoothing-encoder-fft/weights/epoch_320.pt"
+pretrained: true
+project_name: smoothing-encoder-fft
+wandb_name: "diff-unet"
+use_wandb: false  # default=False
+use_cache: false
+use_amp: false  # default=False
+epoch: 80

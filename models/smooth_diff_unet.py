@@ -39,7 +39,7 @@ class SmoothLayer(nn.Module):
                        (0, -p, 0),
                        (0, 0, p),
                        (0, 0, -p)]
-        self.weights = nn.Parameter(torch.randn(in_features, d, w, h) * 0.01)
+        self.weights = nn.Parameter(torch.randn(in_features, d, w, h) * 0.5)
         
     def forward(self, x: torch.Tensor):
         p = self.p
