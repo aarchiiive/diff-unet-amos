@@ -66,7 +66,8 @@ class Tester(Engine):
     def load_checkpoint(self, model_path):
         if self.epoch is not None:
             model_path = os.path.join(os.path.dirname(model_path), f"epoch_{self.epoch}.pt")
-        state_dict = torch.load(model_path, map_location="cpu")
+        print(self.num_classes)
+        state_dict = torch.load(model_path)
         self.model.load_state_dict(state_dict['model'])
             
         print(f"Checkpoint loaded from {model_path}.....")
@@ -98,6 +99,7 @@ class Tester(Engine):
         hds = OrderedDict({v : 0 for v in self.class_names.values()})
         ious = OrderedDict({v : 0 for v in self.class_names.values()})
         
+        print(label.shape)
         for i in range(self.num_classes):
             pred = output[:, i]
             gt = label[:, i]

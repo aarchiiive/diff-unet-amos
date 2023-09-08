@@ -134,7 +134,7 @@ class Engine:
         elif self.mode == "test":
             label = batch["raw_label"]
             
-        # label = self.convert_labels(label) 
+        label = self.convert_labels(label) 
         label = label.float()
         
         return image, label

@@ -36,9 +36,11 @@ def get_data_path(name="amos"):
 def get_class_names(classes, remove_bg=False, bg_index=0):
      with open(classes, "r") as f:
         if remove_bg:
-            return OrderedDict(yaml.safe_load(f))
+            classes = OrderedDict(yaml.safe_load(f))
+            del classes[0]
+            return classes
         else:
-            return OrderedDict(yaml.safe_load(f)).pop(bg_index)
+            return OrderedDict(yaml.safe_load(f))
 
 def get_dataloader(
     data_path, 
@@ -140,7 +142,6 @@ def get_dataloader(
         spatial_size=spatial_size,
         transform=train_transform, 
         data_dir=data_path, 
-        data_dict=data,
         mode="train",
         remove_bg=remove_bg,
         use_cache=use_cache
@@ -152,7 +153,6 @@ def get_dataloader(
         spatial_size=spatial_size,
         transform=val_transform, 
         data_dir=data_path, 
-        data_dict=data, 
         mode="val",
         remove_bg=remove_bg,
         use_cache=False
@@ -165,7 +165,6 @@ def get_dataloader(
         transform=test_transform, 
         data_dir=data_path, 
         mode="test",
-        data_dict=data,
         remove_bg=remove_bg,
         use_cache=False
     )
