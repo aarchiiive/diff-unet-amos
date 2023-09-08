@@ -1,8 +1,8 @@
-model_name: diff_unet  # "diff_unet"
-data_name: amos # "msd"
+model_name: smooth_diff_unet
+data_name: msd
 image_size: 96
 spatial_size: 96
-classes: cfg/amos/classes.yaml
+classes: cfg/msd/classes.yaml
 device: cuda:0
 model_path: null # logs/amos/weights/epoch_600.pt
 max_epochs: 5000
@@ -11,9 +11,9 @@ save_freq: 25
 batch_size: 10
 num_workers: 2
 num_gpus: 5
-project_name: diff-unet
+project_name: smoothing-encoder
 wandb_name: null
-log_dir: test # "diff-unet-msd"
+log_dir: smooth-diff-unet # "diff-unet-msd"
 losses: mse,bce,dice # e.g mse,dice,cse,boundary
 loss_combine: plus
 pretrained: true

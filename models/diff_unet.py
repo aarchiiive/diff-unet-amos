@@ -1,7 +1,7 @@
 import torch 
 import torch.nn as nn 
 
-from layers.basic_unet import BasicUNetEncoder
+# from layers.basic_unet import BasicUNetEncoder
 from layers.basic_unet_denoise import BasicUNetDecoder
 
 from guided_diffusion.gaussian_diffusion import get_named_beta_schedule, ModelMeanType, ModelVarType,LossType
@@ -32,6 +32,11 @@ class DiffUNet(nn.Module):
         self.pretrained = pretrained
         self.mode = mode
         
+        if pretrained:
+            from layers.pretrained.basic_unet import BasicUNetEncoder
+        else:
+            from layers.basic_unet import BasicUNetEncoder
+            
         self.embed_model = BasicUNetEncoder(3, 1, 2, [64, 64, 128, 256, 512, 64])
         self.model = BasicUNetDecoder(3, num_classes+1, num_classes, [64, 64, 128, 256, 512, 64], 
                                       act = ("LeakyReLU", {"negative_slope": 0.1, "inplace": False}))
@@ -66,13 +71,13 @@ class DiffUNet(nn.Module):
         elif pred_type == "ddim_sample":
             embeddings = self.embed_model(image)
             sample_out = self.sample_diffusion.ddim_sample_loop(self.model, 
-                                                                (1, self.num_classes, self.spatial_size, self.spatial_size,  self.spatial_size), 
+                                                                (1, self.num_classes, self.spatial_size, self.width,  self.height), 
                                                                 model_kwargs={"image": image, "embeddings": embeddings})
             if self.mode == "train":
                 sample_out = sample_out["pred_xstart"].to(self.device)
                 return sample_out
             elif self.mode == "test":
-                sample_return = torch.zeros((1, self.num_classes, self.spatial_size, self.spatial_size, self.spatial_size)).to(self.device)
+                sample_return = torch.zeros((1, self.num_classes, self.spatial_size, self.width,  self.height)).to(self.device)
                 all_samples = sample_out["all_samples"]
                 
                 for sample in all_samples:

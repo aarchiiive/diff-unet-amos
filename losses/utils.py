@@ -22,7 +22,7 @@ import numpy as np
 from skimage.io import imsave
 from PIL import Image, ImageOps
 from medpy.metric.binary import hd
-from scipy.ndimage import distance_transform_edt as eucl_distance
+# from scipy.ndimage import distance_transform_edt as eucl_distance
 
 colors = ["c", "r", "g", "b", "m", 'y', 'k', 'chartreuse', 'coral', 'gold', 'lavender',
           'silver', 'tan', 'teal', 'wheat', 'orchid', 'orange', 'tomato']
@@ -272,21 +272,50 @@ def probs2one_hot(probs: Tensor) -> Tensor:
     return res
 
 
-def one_hot2dist(seg: np.ndarray, resolution: Tuple[float, float, float] = None,
-                 dtype=None) -> np.ndarray:
-    # assert one_hot(torch.tensor(seg), axis=0)
-    K: int = len(seg)
+# def one_hot2dist(seg: np.ndarray, resolution: Tuple[float, float, float] = None,
+#                  dtype=None) -> np.ndarray:
+#     # assert one_hot(torch.tensor(seg), axis=0)
+#     K: int = len(seg)
 
-    res = np.zeros_like(seg, dtype=dtype)
-    for k in range(K):
-        posmask = seg[k].astype(np.bool)
+#     res = np.zeros_like(seg, dtype=dtype)
+#     for k in range(K):
+#         posmask = seg[k].astype(np.bool)
+
+#         if posmask.any():
+#             negmask = ~posmask
+#             res[k] = eucl_distance(negmask, sampling=resolution) * negmask \
+#                 - (eucl_distance(posmask, sampling=resolution) - 1) * posmask
+#         # The idea is to leave blank the negative classes
+#         # since this is one-hot encoded, another class will supervise that pixel
+
+#     return res
+
+def eucl_distance(mask, resolution):
+    # dim = len(resolution)
+    coords = torch.nonzero(mask)
+    distances = torch.zeros_like(mask)
+    print(coords)
+    print(distances)
+
+    for coord in coords:
+        dist = torch.norm(coord * resolution, dim=0)
+        distances[tuple(coord)] = dist
+
+    return distances
+
+def one_hot2dist(seg, resolution, dtype=None):
+    K = seg.shape[0]
+    res = torch.zeros_like(seg, dtype=dtype)
+    resolution = torch.tensor(resolution).to(seg.device)
+    
+    for k in tqdm(range(K)):
+        posmask = seg[k].bool()
 
         if posmask.any():
             negmask = ~posmask
-            res[k] = eucl_distance(negmask, sampling=resolution) * negmask \
-                - (eucl_distance(posmask, sampling=resolution) - 1) * posmask
-        # The idea is to leave blank the negative classes
-        # since this is one-hot encoded, another class will supervise that pixel
+            neg_distances = eucl_distance(negmask, resolution) * negmask
+            pos_distances = (eucl_distance(posmask, resolution) - 1) * posmask
+            res[k] = neg_distances - pos_distances
 
     return res
 
@@ -421,7 +450,7 @@ def gt_transform(resolution: Tuple[float, ...], K: int) -> Callable[[D], Tensor]
 def dist_map_transform(resolution: Tuple[float, ...], K: int) -> Callable[[D], Tensor]:
     return transforms.Compose([
         # gt_transform(resolution, K),
-        lambda t: t.cpu().numpy(),
+        # lambda t: t.cpu().numpy(),
         partial(one_hot2dist, resolution=resolution),
-        lambda nd: torch.tensor(nd, dtype=torch.float32)
+        # lambda nd: torch.tensor(nd, dtype=torch.float32)
     ])

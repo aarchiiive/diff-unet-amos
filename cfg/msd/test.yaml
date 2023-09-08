@@ -1,14 +1,14 @@
-model_name: "smooth_diff_unet"  # "diff_unet"
-data_name: "msd"
-image_size: 96
+model_name: diff_unet  # "diff_unet"
+data_name: msd
+image_size: 224
 spatial_size: 96
-num_classes: 16
-device: "cuda:1"
-model_path: "logs/smoothing-encoder-fft/weights/epoch_320.pt"
+classes: cfg/msd/classes.yaml
+device: cuda:0
+model_path: logs/diff-unet-msd-boundary/weights/epoch_300.pt
 pretrained: true
-project_name: smoothing-encoder-fft
-wandb_name: "diff-unet"
-use_wandb: false  # default=False
+project_name: diff-unet-test
+wandb_name: diff-unet-msd-ssl
+use_wandb: false  # true
 use_cache: false
-use_amp: false  # default=False
-epoch: 80
+use_amp: true  # true
+epoch: null

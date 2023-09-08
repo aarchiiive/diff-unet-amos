@@ -11,12 +11,18 @@
 
 from typing import Optional, Sequence, Union
 
+import copy
+from einops import rearrange
+
 import torch
 import torch.nn as nn
 
 from monai.networks.blocks import Convolution, UpSample
 from monai.networks.layers.factories import Conv, Pool
 from monai.utils import deprecated_arg, ensure_tuple_rep
+
+from .utils import mask_func
+from .utils import get_mask_labels, get_mask_labelsv2
 
 __all__ = ["BasicUnet", "Basicunet", "basicunet", "BasicUNet"]
 
@@ -199,9 +205,13 @@ class BasicUNet(nn.Module):
         act: Union[str, tuple] = ("LeakyReLU", {"negative_slope": 0.1, "inplace": True}),
         norm: Union[str, tuple] = ("instance", {"affine": True}),
         bias: bool = True,
-        dropout: Union[float, tuple] = 0.0,
+        dropout: Union[float, tuple] = 0.1,
         upsample: str = "deconv",
         dimensions: Optional[int] = None,
+        pool_size = ((2, 2, 2), (2, 2, 2), (2, 2, 2), (2, 2, 2)),
+        select_reconstruct_region=[[4, 4, 4], [12, 12, 12]],
+        first_level_region = (32, 32, 32),
+        pretrained=True,
     ):
         """
         A UNet implementation with 1D/2D/3D supports.
@@ -254,22 +264,87 @@ class BasicUNet(nn.Module):
         super().__init__()
         if dimensions is not None:
             spatial_dims = dimensions
+            
+        # additional settings for HybridMIM
+        deepth = len(pool_size)
+        self.deepth = deepth
+        self.in_channels = in_channels
+        self.select_reconstruct_region = select_reconstruct_region
+        self.pretrained = pretrained
+        
+        self.stages = self.cons_stages(pool_size, select_reconstruct_region)
+        self.pool_size_all = self.get_pool_size_all(pool_size)
+        self.window_size = torch.tensor(first_level_region) // torch.tensor(self.pool_size_all)
 
+        # BasicUNet settings
         fea = ensure_tuple_rep(features, 6)
         print(f"BasicUNet features: {fea}.")
 
         self.conv_0 = TwoConv(spatial_dims, in_channels, features[0], act, norm, bias, dropout)
-        self.down_1 = Down(spatial_dims, fea[0], fea[1], act, norm, bias, dropout)
-        self.down_2 = Down(spatial_dims, fea[1], fea[2], act, norm, bias, dropout)
-        self.down_3 = Down(spatial_dims, fea[2], fea[3], act, norm, bias, dropout)
-        self.down_4 = Down(spatial_dims, fea[3], fea[4], act, norm, bias, dropout)
-
-        self.upcat_4 = UpCat(spatial_dims, fea[4], fea[3], fea[3], act, norm, bias, dropout, upsample)
-        self.upcat_3 = UpCat(spatial_dims, fea[3], fea[2], fea[2], act, norm, bias, dropout, upsample)
-        self.upcat_2 = UpCat(spatial_dims, fea[2], fea[1], fea[1], act, norm, bias, dropout, upsample)
-        self.upcat_1 = UpCat(spatial_dims, fea[1], fea[0], fea[5], act, norm, bias, dropout, upsample, halves=False)
+        
+        # downsample layers(encoder)
+        self.down = nn.ModuleList([])
+        for d in range(deepth):
+            self.down.append(Down(3, fea[d], fea[d+1], act=act, norm=norm, bias=bias, dropout=dropout))
+        
+        # upsample layers(decoder)
+        self.up = nn.ModuleList([])
+        for d in range(deepth):
+            self.up.append(UpCat(3, fea[deepth-d], fea[deepth-d-1], fea[deepth-d-1], 
+                                  act, norm, bias, dropout, upsample=upsample))
 
         self.final_conv = Conv["conv", spatial_dims](fea[5], out_channels, kernel_size=1)
+        self.decoder_pred = nn.Conv3d(fea[0], out_channels, 1, 1)
+        
+        # additional settings for HybridMIM
+        if pretrained:
+            bottom_feature = features[-1]
+            self.pred_mask_region = nn.Linear(bottom_feature, 9)# 一个region 4个 patch
+            self.contrast_learning_head = nn.Linear(bottom_feature, 384)
+            self.pred_mask_region_position = nn.Linear(bottom_feature, 8)
+        
+    def cons_stages(self, pools, region):
+        stage = [(copy.deepcopy(region[0]), copy.deepcopy(region[1]))]
+        for pool in reversed(pools):
+            for i, r in enumerate(region):
+                region[i][0] = region[i][0] * pool[0]
+                region[i][1] = region[i][1] * pool[1]
+                region[i][2] = region[i][2] * pool[2]
+            stage.append((copy.deepcopy(region[0]), copy.deepcopy(region[1])))
+
+        return stage
+    
+    def get_pool_size_all(self, pool_size):
+        p_all = [1, 1, 1]
+        for p in pool_size:
+            p_all[0] = p_all[0] * p[0]
+            p_all[1] = p_all[1] * p[1]
+            p_all[2] = p_all[2] * p[2]
+        return p_all 
+
+    def wrap_feature_selection(self, feature, region_box):
+        # feature: b, c, d, w, h
+        return feature[..., region_box[0][0]:region_box[1][0], region_box[0][1]:region_box[1][1], region_box[0][2]:region_box[1][2]]
+
+    def get_local_images(self, images):
+        images = self.wrap_feature_selection(images, region_box=self.stages[-1])
+        return images
+    
+    def forward_encoder(self, x):
+        x = self.conv_0(x)
+        x_down = [x]
+        for d in range(self.deepth):
+            x = self.down[d](x)
+            x_down.append(x)
+        return x_down
+
+    def forward_decoder(self, x_down):
+        x = self.wrap_feature_selection(x_down[-1], self.stages[0])
+
+        for d in range(self.deepth):
+            x = self.up[d](x, self.wrap_feature_selection(x_down[self.deepth-d-1], self.stages[d+1]))
+        logits = self.decoder_pred(x)
+        return logits
 
     def forward(self, x: torch.Tensor):
         """
@@ -283,30 +358,61 @@ class BasicUNet(nn.Module):
             A torch Tensor of "raw" predictions in shape
             ``(Batch, out_channels, dim_0[, dim_1, ..., dim_N])``.
         """
-        embeddings = []
+        device = x.device
+        images = x.detach()
+        local_images = self.get_local_images(images)
+        if self.pretrained:
+            # mask_ratio = torch.clamp(torch.rand(1), 0.4, 0.75)
+            mask_ratio = 0.4
+            x, mask = mask_func(x, self.in_channels, mask_ratio, (16, 16, 16), (6, 6, 6), mask_value=0.0)
+            region_mask_labels = get_mask_labels(x.shape[0], 3*3*3, mask, 2*2*2, device)
+            region_mask_position = get_mask_labelsv2(x.shape[0], 3*3*3, mask, 2*2*2, device=device)
 
-        x0 = self.conv_0(x)
-        embeddings.append(x0)
+            x_mask = self.wrap_feature_selection(x, region_box=self.stages[-1])
 
-        x1 = self.down_1(x0)
-        embeddings.append(x1)
+        hidden_states_out = self.forward_encoder(x)
+        logits = self.forward_decoder(hidden_states_out)  
 
-        x2 = self.down_2(x1)
-        embeddings.append(x2)
+        if self.pretrained:
+            # print(hidden_states_out.shape)
+            classifier_hidden_states = rearrange(hidden_states_out[-1], "b c (d m) (w n) (h l) -> b c d w h (m n l)", m=self.window_size[0], n=self.window_size[1], l=self.window_size[2])
+            classifier_hidden_states = classifier_hidden_states.mean(dim=-1)
+            with torch.no_grad():
+                hidden_states_out_2 = self.forward_encoder(x)
+            encode_feature = hidden_states_out[-1]
+            encode_feature_2 = hidden_states_out_2[-1]
 
-        x3 = self.down_3(x2)
-        embeddings.append(x3)
+            x4_reshape = encode_feature.flatten(start_dim=2, end_dim=4)
+            x4_reshape = x4_reshape.transpose(1, 2)
 
-        x4 = self.down_4(x3)
-        embeddings.append(x4)
+            x4_reshape_2 = encode_feature_2.flatten(start_dim=2, end_dim=4)
+            x4_reshape_2 = x4_reshape_2.transpose(1, 2)
 
-        u4 = self.upcat_4(x4, x3)
-        u3 = self.upcat_3(u4, x2)
-        u2 = self.upcat_2(u3, x1)
-        u1 = self.upcat_1(u2, x0)
+            contrast_pred = self.contrast_learning_head(x4_reshape.mean(dim=1))
+            contrast_pred_2 = self.contrast_learning_head(x4_reshape_2.mean(dim=1))
 
-        logits = self.final_conv(u1)
-        return logits, embeddings
+            pred_mask_feature = classifier_hidden_states.flatten(start_dim=2, end_dim=4)
+            pred_mask_feature = pred_mask_feature.transpose(1, 2)
+            mask_region_pred = self.pred_mask_region(pred_mask_feature)
+
+            pred_mask_feature_position = classifier_hidden_states.flatten(start_dim=2, end_dim=4)
+            pred_mask_feature_position = pred_mask_feature_position.transpose(1, 2)
+            mask_region_position_pred = self.pred_mask_region_position(pred_mask_feature_position)
+
+            return {
+                "logits": logits,
+                'images': local_images,
+                "pred_mask_region": mask_region_pred,
+                "pred_mask_region_position": mask_region_position_pred,
+                "mask_position_lables": region_mask_position,
+                "mask": mask,
+                "x_mask": x_mask,
+                "mask_labels": region_mask_labels,
+                "contrast_pred_1": contrast_pred,
+                "contrast_pred_2": contrast_pred_2,
+            }
+        else :
+            return logits
 
 
 BasicUnet = Basicunet = basicunet = BasicUNet
@@ -385,10 +491,9 @@ class BasicUNetEncoder(nn.Module):
         print(f"BasicUNet features: {fea}.")
 
         self.conv_0 = TwoConv(spatial_dims, in_channels, features[0], act, norm, bias, dropout)
-        self.down_1 = Down(spatial_dims, fea[0], fea[1], act, norm, bias, dropout)
-        self.down_2 = Down(spatial_dims, fea[1], fea[2], act, norm, bias, dropout)
-        self.down_3 = Down(spatial_dims, fea[2], fea[3], act, norm, bias, dropout)
-        self.down_4 = Down(spatial_dims, fea[3], fea[4], act, norm, bias, dropout)
+        self.down = nn.ModuleList()
+        for d in range(len(fea[:4])):
+            self.down.append(Down(spatial_dims, fea[d], fea[d+1], act, norm, bias, dropout))
 
     def forward(self, x: torch.Tensor):
         """
@@ -402,13 +507,10 @@ class BasicUNetEncoder(nn.Module):
             A torch Tensor of "raw" predictions in shape
             ``(Batch, out_channels, dim_0[, dim_1, ..., dim_N])``.
         """
-            
-        x0 = self.conv_0(x)
-        x1 = self.down_1(x0)
-        x2 = self.down_2(x1)
-        x3 = self.down_3(x2)
-        x4 = self.down_4(x3)
+        _x = [self.conv_0(x)]
+        for i in range(len(self.down)):
+            _x.append(self.down[i](_x[i]))
 
-        return [x0, x1, x2, x3, x4]
+        return _x
         
 

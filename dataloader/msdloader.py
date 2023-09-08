@@ -37,8 +37,8 @@ class MSDDataset(Dataset):
                  padding: bool = True,
                  transform: transforms = None, 
                  data_dir: Optional[str] = None, 
-                 data_dict: Optional[dict] = None, 
                  mode: Optional[str] = "train",
+                 remove_bg: Optional[bool] = False,
                  use_cache: Optional[bool] = True) -> None:
         super().__init__()
         
@@ -48,8 +48,8 @@ class MSDDataset(Dataset):
         self.spatial_size = spatial_size
         self.padding = padding
         self.data_dir = data_dir
-        self.data_dict = data_dict
         self.mode = mode
+        self.remove_bg = remove_bg
         self.use_cache = use_cache
         
         self.pad = (pad, pad)
@@ -73,8 +73,7 @@ class MSDDataset(Dataset):
         if data_path[0] in self.cache.keys():
             return self.cache[data_path[0]]
         else:
-            image_path = data_path[0]
-            label_path = data_path[1]
+            image_path, label_path = data_path
 
             image = nibabel.load(image_path).get_fdata()
             label = nibabel.load(label_path).get_fdata()
@@ -83,18 +82,6 @@ class MSDDataset(Dataset):
             image = torch.tensor(image)
             label = torch.tensor(label)
             raw_label = torch.tensor(raw_label)
-            
-            # if self.padding:
-            #     _, _, d = image.shape
-                
-            #     if self.spatial_size > d: # add padding
-            #         p = (self.spatial_size - d) // 2
-            #         pad = (p, p) if d % 2 == 0 else (p, p+1)
-            #         image = F.pad(image, pad, "constant")
-            #         label = F.pad(label, pad, "constant")
-            #     elif self.spatial_size < d: # resize -> reducing depth
-            #         image = F.interpolate(image, size=(self.spatial_size), mode='nearest')
-            #         label = F.interpolate(label, size=(self.spatial_size), mode='nearest')
             
             image = F.pad(image, self.pad, "constant", 0)
             label = F.pad(label, self.pad, "constant", 0)
@@ -120,30 +107,7 @@ class MSDDataset(Dataset):
             if self.mode == "test": self.cache[data_path[0]]["raw_label"] = raw_label
             
             return self.cache[data_path[0]]
-        
-    def nii2tensor(self):
-        assert self.data_dict != None, "data_dict has not been assigned"
-        for phase in ["train", "val"]:
-            p = "Tr" if phase == "train" else "Va"
-            image_dir = os.path.join(self.tensor_dir, f"images{p}")
-            label_dir = os.path.join(self.tensor_dir, f"labels{p}")
-            
-            os.makedirs(image_dir, exist_ok=True)
-            os.makedirs(label_dir, exist_ok=True)
-            
-            for img, label in zip(tqdm(self.data_dict[phase]["images"]), self.data_dict[phase]["labels"]):
-                name = os.path.basename(img)
-                patient = name.split(".")[0]
-                
-                img = nibabel.load(img).get_fdata()
-                label = nibabel.load(label).get_fdata()
-                
-                img = torch.from_numpy(img).permute(2, 1, 0)
-                label = torch.from_numpy(label).permute(2, 1, 0)
-                
-                torch.save(img, os.path.join(image_dir, f"{patient}.pt"))
-                torch.save(label, os.path.join(label_dir, f"{patient}.pt"))
-        
+
     def __len__(self):
         return len(self.data_list)
     
@@ -154,34 +118,3 @@ class MSDDataset(Dataset):
             data = self.transform(data)
         
         return data, self.data_list[i][0]
-            
-
-if __name__ == "__main__":
-    data_path = "/home/song99/ws/datasets/MSD"
-    
-    data = {
-        "train" : 
-            {"images" : sorted(glob.glob(f"{data_path}/imagesTr/*.nii.gz")),
-             "labels" : sorted(glob.glob(f"{data_path}/labelsTr/*.nii.gz"))},
-        "val" : 
-            {"images" : sorted(glob.glob(f"{data_path}/imagesVa/*.nii.gz")),
-             "labels" : sorted(glob.glob(f"{data_path}/labelsVa/*.nii.gz"))},
-    }
-    
-    image_path = os.path.join(data_path, "imagesVa")
-    label_path = os.path.join(data_path, "labelsVa")
-    
-    os.makedirs(image_path, exist_ok=True)
-    os.makedirs(label_path, exist_ok=True)
-
-    X_train, X_test, y_train, y_test = train_test_split(data["train"]["images"],
-                                                        data["train"]["labels"],
-                                                        test_size=0.214, random_state=16)
-    
-    print(len(X_train))
-    print(len(X_test))
-    
-    # for x in X_test:
-    #     shutil.move(x, os.path.join(image_path, os.path.basename(x)))
-    # for y in y_test:
-    #     shutil.move(y, os.path.join(label_path, os.path.basename(y)))

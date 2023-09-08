@@ -1,22 +1,22 @@
-model_name: "diff_unet"  # "diff_unet"
-data_name: "msd" # "msd"
-image_size: 48
-spatial_size: 48
-num_classes: 3
-device: "cuda:0"
-model_path: null  # "logs/amos/weights/epoch_800.pt"
+model_name: diff_unet  # "diff_unet"
+data_name: msd # "msd"
+image_size: 224
+spatial_size: 96
+classes: cfg/msd/classes.yaml
+device: cuda:0
+model_path: logs/diff-unet-msd-ssl/weights/epoch_300.pt
+pretrained_path: pretrained/basic_unet/encoder.pt
 max_epochs: 5000
 val_freq: 20000
 save_freq: 25
-batch_size: 2
+batch_size: 5
 num_workers: 2
-num_gpus: 1
-project_name: "diff-unet"
+num_gpus: 5
+project_name: diff-unet
 wandb_name: null
-log_dir: "test" # "diff-unet-msd"
-loss_combine: "plus"
-pretrained: true
-use_wandb: false  # false
-use_amp: false  # true
-use_cache: false  # true
-
+log_dir: diff-unet-msd-ssl # "diff-unet-msd"
+losses: mse,bce,dice # e.g ce,mse,dice,cse,boundary,focal
+loss_combine: plus
+use_wandb: true  # false
+use_amp: true  # true
+use_cache: true  # true

@@ -14,15 +14,13 @@ from torch.nn.parallel import DataParallel, DistributedDataParallel
 
 from monai.data import DataLoader
 from monai.utils import set_determinism
-from monai.losses.dice import DiceLoss
 
 from light_training.utils.lr_scheduler import LinearWarmupCosineAnnealingLR
 
 from engine import Engine
 from utils import parse_args, get_data_path, get_dataloader
-from losses.loss import BoundaryLoss
 from losses.utils import dist_map_transform
-
+from losses.hub import *
 set_determinism(123)
 
         
@@ -35,18 +33,20 @@ class Trainer(Engine):
         batch_size=10, 
         image_size=256,
         spatial_size=96,
-        num_classes=16,
+        classes=None,
         val_freq=1, 
         save_freq=5,
         device="cpu", 
         num_gpus=1, 
         num_workers=2,
+        losses="mse,bce,dice",
         loss_combine='plus',
         log_dir="logs", 
         model_path=None,
+        pretrained_path=None,
         project_name="diff-unet",
         wandb_name=None,
-        pretrained=True,
+        remove_bg=False,
         use_amp=True,
         use_cache=True,
         use_wandb=True,
@@ -56,13 +56,14 @@ class Trainer(Engine):
             data_name=data_name,
             image_size=image_size,
             spatial_size=spatial_size,
-            num_classes=num_classes, 
+            classes=classes,
             device=device,
             num_workers=num_workers,
+            losses=losses,
             model_path=model_path,
             project_name=project_name,
             wandb_name=wandb_name,
-            pretrained=pretrained,
+            remove_bg=remove_bg,
             use_amp=use_amp,
             use_cache=use_cache,
             use_wandb=use_wandb,
@@ -76,6 +77,7 @@ class Trainer(Engine):
         self.num_workers = num_workers
         self.loss_combine = loss_combine
         self.log_dir = os.path.join("logs", log_dir)
+        self.pretrained = pretrained_path is not None
         self.use_cache = use_cache
         
         self.local_rank = 0
@@ -93,15 +95,12 @@ class Trainer(Engine):
         self.scheduler = LinearWarmupCosineAnnealingLR(self.optimizer,
                                                        warmup_epochs=10,
                                                        max_epochs=max_epochs)
-        self.ce = nn.CrossEntropyLoss() 
-        self.mse = nn.MSELoss()
-        self.bce = nn.BCEWithLogitsLoss()
-        self.dice_loss = DiceLoss(sigmoid=True)
-        self.boundary_loss = BoundaryLoss(num_classes)
-        self.dist_transform = dist_map_transform([1.0, 1.0, 1.0, 1.0], num_classes)
+        self.dist_transform = dist_map_transform([1.0, 1.0, 1.0, 1.0], self.num_classes)
         
         if model_path is not None:
             self.load_checkpoint(model_path)
+        elif self.pretrained:
+            self.load_pretrained_weights(pretrained_path)
                 
         if self.num_gpus > 1:
             self.model = DataParallel(self.model)
@@ -120,7 +119,7 @@ class Trainer(Engine):
         
     def load_checkpoint(self, model_path):
         state_dict = torch.load(model_path)
-        # self.model.load_state_dict(state_dict['model'])
+        self.model.load_state_dict(state_dict['model'])
         self.optimizer.load_state_dict(state_dict['optimizer'])
         self.scheduler.load_state_dict(state_dict['scheduler'])
         self.start_epoch = state_dict['epoch']
@@ -128,29 +127,19 @@ class Trainer(Engine):
         self.best_mean_dice = state_dict['best_mean_dice']
         self.wandb_id = state_dict['id']
         
-        # deprecated soon
-        if 'model' in state_dict.keys():
-           model_state_dict = state_dict['model_state_dict']
-        elif 'model_state_dict' in state_dict.keys():
-            model_state_dict = state_dict['model_state_dict']
-            
-        temp_dict = OrderedDict()
-        for k, v in model_state_dict.items():
-            if "temb.dense" in k:
-                temp_dict[k.replace("temb.dense", "t_emb.dense")] = v
-            else:
-                temp_dict[k] = v
-                    
-        self.model.load_state_dict(temp_dict)
-        
         print(f"Checkpoint loaded from {model_path}")
         
+    def load_pretrained_weights(self, pretrained_path):
+        self.model.embed_model.load_state_dict(torch.load(pretrained_path, map_location="cpu"))
+        print(f"Pretrained weights...")
+            
     def set_dataloader(self):
         train_ds, val_ds = get_dataloader(data_path=get_data_path(self.data_name),
                                           data_name=self.data_name,
                                           image_size=self.image_size,
                                           spatial_size=self.spatial_size,
                                           mode="train", 
+                                          remove_bg=self.remove_bg,
                                           use_cache=self.use_cache)
         self.dataloader = {"train": DataLoader(train_ds, batch_size=self.batch_size, shuffle=True),
                            "val": DataLoader(val_ds, batch_size=1, shuffle=False)}
@@ -235,7 +224,6 @@ class Trainer(Engine):
                         loss.backward()
                         self.optimizer.step()
                     
-                    
                     lr = self.optimizer.state_dict()['param_groups'][0]['lr']
 
                     t.set_postfix(loss=loss.item(), lr=lr)
@@ -262,15 +250,27 @@ class Trainer(Engine):
         x_t, t, _ = self.model(x=x_start, pred_type="q_sample")
         pred_xstart = self.model(x=x_t, step=t, image=image, pred_type="denoise")
 
-        loss_dice = self.dice_loss(pred_xstart, label)
-        loss_bce = self.bce(pred_xstart, label)
-        # loss_mse = self.mse(torch.sigmoid(pred_xstart), label)
-        loss_boundary = self.boundary_loss(F.softmax(pred_xstart), self.dist_transform(label))
-
+        return self.compute_loss(pred_xstart, label) 
+    
+    def compute_loss(self, preds, labels):
+        loss = []
+        for _loss in self.losses:
+            if isinstance(_loss, MSELoss):
+                loss.append(_loss(torch.sigmoid(preds), labels))
+            elif isinstance(_loss, CrossEntropyLoss):
+                loss.append(_loss(preds, labels))
+            elif isinstance(_loss, BCEWithLogitsLoss):
+                loss.append(_loss(preds, labels))
+            elif isinstance(_loss, DiceLoss):
+                loss.append(_loss(preds, labels))
+            elif isinstance(_loss, BoundaryLoss):
+                loss.append(_loss(F.softmax(preds, dim=1), self.dist_transform(labels)))
+                
         if self.loss_combine == 'plus':
-            loss = loss_dice + loss_bce + loss_boundary # + loss_mse
-
-        return loss 
+            return sum(loss)
+        else:
+            # TODO : implement loss combinations
+            pass
     
     def validation_step(self, batch):
         image, label = self.get_input(batch)  
@@ -306,6 +306,14 @@ class Trainer(Engine):
         print(f"mean_dice : {mean_dice}")
         self.log("mean_dice", mean_dice, epoch)
 
+# def main():
+#     dist_url = "env://"
+#     rank = int(os.environ['RANK'])
+#     world_size = int(os.environ(['WORLD_SIZE']))
+#     local_rank = int(os.environ['LOCAL_RANK'])
+#     torch.distributed.init_process_group(backend="nccl", init_method=dist_url, world_size=world_size, rank=rank)
+#     torch.cuda.set_device(local_rank)
+#     torch.distributed
 
 if __name__ == "__main__":
     args = parse_args()

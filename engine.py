@@ -1,19 +1,17 @@
 import os
 import wandb
 
-import cv2
 import numpy as np
-from scipy.ndimage import distance_transform_edt as eucl_distance
-from typing import Any, Callable, Iterable, List, Set, Tuple, TypeVar, Union, cast
 
 import torch
 import torch.nn as nn
 from torchvision import transforms
 
-from monai.data import DataLoader, ThreadDataLoader
+from monai.data import DataLoader
 from monai.inferers import SlidingWindowInferer
-from utils import load_model, get_class_names
 
+from losses.hub import load_losses
+from utils import model_hub, get_class_names
 
 class Engine:
     def __init__(
@@ -22,14 +20,14 @@ class Engine:
         data_name="amos",
         image_size=256,
         spatial_size=96,
-        class_names=None,
-        num_classes=16, 
+        classes=None,
         device="cpu",
         num_workers=2,
+        losses="mse,cse,dice",
         model_path=None,
         project_name=None,
         wandb_name=None,
-        pretrained=True,
+        remove_bg=False,
         use_amp=True,
         use_cache=True,
         use_wandb=True,
@@ -39,18 +37,20 @@ class Engine:
         self.data_name = data_name
         self.image_size = image_size
         self.spatial_size = spatial_size
-        self.class_names = get_class_names(data_name)
-        self.num_classes = num_classes
+        self.class_names = get_class_names(classes, remove_bg)
+        self.num_classes = len(self.class_names)
         self.device = torch.device(device)
         self.num_workers = num_workers
+        self.losses = losses
         self.model_path = model_path
         self.project_name = project_name
         self.wandb_name = wandb_name
-        self.pretrained = pretrained
+        self.remove_bg = remove_bg
         self.use_amp = use_amp
         self.use_cache = use_cache
         self.use_wandb = use_wandb
         self.mode = mode
+        self.pretrained = False
         self.global_step = 0
         self.best_mean_dice = 0
         self.loss = 0
@@ -61,33 +61,28 @@ class Engine:
         elif isinstance(image_size, int):
             width = height = image_size
         
-        if class_names is not None:
-            self.class_names = class_names
-            self.num_classes = len(class_names)
-        else:
-            self.num_classes = num_classes
-            
         if use_wandb and mode == "test":
             self.table = None # reserved
         
         self.scaler = torch.cuda.amp.GradScaler()
+        self.tensor2pil = transforms.ToPILImage()
+        self.losses = load_losses(losses.split(','), self.num_classes)
         self.window_infer = SlidingWindowInferer(roi_size=[spatial_size, width, height],
                                                  sw_batch_size=1,
                                                  overlap=0.6)
-        self.tensor2pil = transforms.ToPILImage()
-        
         
     def load_checkpoint(self, model_path):
-        pass
+        pass # to be implemented
     
     def load_model(self):
-        return load_model(model_name=self.model_name, 
-                          image_size=self.image_size,
-                          spatial_size=self.spatial_size,
-                          num_classes=self.num_classes,
-                          device=self.device,
-                          pretrained=self.pretrained,
-                          mode=self.mode).to(self.device)
+        return model_hub(
+            model_name=self.model_name, 
+            image_size=self.image_size,
+            spatial_size=self.spatial_size,
+            num_classes=self.num_classes,
+            device=self.device,
+            pretrained=self.pretrained,
+            mode=self.mode).to(self.device)
     
     def save_model(
         self,
@@ -128,6 +123,9 @@ class Engine:
         
     def set_dataloader(self):
         pass
+    
+    def set_losses(self):
+        pass
         
     def get_input(self, batch):
         image = batch["image"]
@@ -136,18 +134,22 @@ class Engine:
         elif self.mode == "test":
             label = batch["raw_label"]
             
-        label = self.convert_labels(label)
+        # label = self.convert_labels(label) 
         label = label.float()
         
         return image, label
 
     def convert_labels(self, labels):
         labels_new = []
-        for i in range(self.num_classes):
-            labels_new.append(labels == i)
+        if self.remove_bg:
+            for i in range(1, self.num_classes+1):
+                labels_new.append(labels == i)
+        else:
+            for i in range(self.num_classes):
+                labels_new.append(labels == i)
         
         labels_new = torch.cat(labels_new, dim=1)
-        return labels_new
+        return labels_new 
 
     def get_numpy_image(self, t, shape, is_label=False):
         _, _, d, w, h = shape
@@ -173,8 +175,13 @@ class Engine:
     def log(self, k, v, step=None):
         if self.use_wandb:
             wandb.log({k: v}, step=step if step is not None else self.global_step)
-    
-    def log_plot(self, vis_data, mean_dice, dices, filename):
+            
+    def log_per_class(self, dice, hd95, step):
+        if self.use_wandb:
+            pass
+            # wandb.log()
+            
+    def log_plot(self, vis_data, mean_dice, mean_hd95, mean_iou, dices, filename):
         patient = os.path.basename(filename).split(".")[0]
         
         plot = wandb.Image(
@@ -191,7 +198,7 @@ class Engine:
             },
         )
         
-        self.table.add_data(*([patient, plot, mean_dice]+[d for d in dices.values()]))
+        self.table.add_data(*([patient, plot, mean_dice, mean_hd95, mean_iou]+[d for d in dices.values()]))
         
         # wandb.log({"table": self.table})
         # self.table = wandb.Table(columns=["patient", "image", "dice"]+[n for n in self.class_names.values()])

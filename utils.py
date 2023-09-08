@@ -17,7 +17,7 @@ from models.diff_unet import DiffUNet
 from models.smooth_diff_unet import SmoothDiffUNet
 
 
-def load_model(model_name, **kwargs):
+def model_hub(model_name, **kwargs):
     if model_name == "diff_unet":
         model = DiffUNet(**kwargs)
     elif model_name == "smooth_diff_unet":
@@ -33,14 +33,23 @@ def get_data_path(name="amos"):
     elif name == "msd":
         return "/home/song99/ws/datasets/MSD"
 
-def get_class_names(dataset="amos"):
-    if dataset == "amos":
-        return OrderedDict({0: "background", 1: "spleen", 2: "right kidney", 3: "left kidney", 
-                            4: "gall bladder", 5: "esophagus", 6: "liver", 7: "stomach", 
-                            8: "arota", 9: "postcava", 10: "pancreas", 11: "right adrenal gland", 
-                            12: "left adrenal gland", 13: "duodenum", 14: "bladder", 15: "prostate,uterus"})
+def get_class_names(classes, remove_bg=False, bg_index=0):
+     with open(classes, "r") as f:
+        if remove_bg:
+            return OrderedDict(yaml.safe_load(f))
+        else:
+            return OrderedDict(yaml.safe_load(f)).pop(bg_index)
 
-def get_dataloader(data_path, data_name, image_size=256, spatial_size=96, num_samples=1, mode="train", use_cache=True):
+def get_dataloader(
+    data_path, 
+    data_name, 
+    image_size=256, 
+    spatial_size=96, 
+    num_samples=1, 
+    mode="train", 
+    remove_bg=False,
+    use_cache=True,
+):
     train_transform = transforms.Compose(
         [   
             transforms.ScaleIntensityRanged(
@@ -121,11 +130,11 @@ def get_dataloader(data_path, data_name, image_size=256, spatial_size=96, num_sa
         data[p]["files"] = paired
     
     if data_name == "amos":
-        _Dataset = AMOSDataset
+        Dataset = AMOSDataset
     elif data_name == "msd":
-        _Dataset = MSDDataset
+        Dataset = MSDDataset
         
-    train_dataset = _Dataset(
+    train_dataset = Dataset(
         data["train"]["files"], 
         image_size=image_size,
         spatial_size=spatial_size,
@@ -133,10 +142,11 @@ def get_dataloader(data_path, data_name, image_size=256, spatial_size=96, num_sa
         data_dir=data_path, 
         data_dict=data,
         mode="train",
+        remove_bg=remove_bg,
         use_cache=use_cache
     )
 
-    val_dataset = _Dataset(
+    val_dataset = Dataset(
         data["val"]["files"], 
         image_size=image_size,
         spatial_size=spatial_size,
@@ -144,10 +154,11 @@ def get_dataloader(data_path, data_name, image_size=256, spatial_size=96, num_sa
         data_dir=data_path, 
         data_dict=data, 
         mode="val",
+        remove_bg=remove_bg,
         use_cache=False
     )
         
-    test_dataset = _Dataset(
+    test_dataset = Dataset(
         data["val"]["files"], 
         image_size=image_size,
         spatial_size=spatial_size,
@@ -155,6 +166,7 @@ def get_dataloader(data_path, data_name, image_size=256, spatial_size=96, num_sa
         data_dir=data_path, 
         mode="test",
         data_dict=data,
+        remove_bg=remove_bg,
         use_cache=False
     )
 

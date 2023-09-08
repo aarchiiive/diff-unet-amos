@@ -35,8 +35,8 @@ class AMOSDataset(Dataset):
                  padding: bool = True,
                  transform: transforms = None, 
                  data_path: Optional[str] = None, 
-                 data_dict: Optional[dict] = None, 
                  mode: Optional[str] = "train",
+                 remove_bg: Optional[bool] = True,
                  use_cache: Optional[bool] = True) -> None:
         super().__init__()
         
@@ -46,8 +46,8 @@ class AMOSDataset(Dataset):
         self.spatial_size = spatial_size
         self.padding = padding
         self.data_path = data_path
-        self.data_dict = data_dict
         self.mode = mode
+        self.remove_bg = remove_bg
         self.use_cache = use_cache
         
         self.pad = (pad, pad)
@@ -82,18 +82,6 @@ class AMOSDataset(Dataset):
             label = torch.tensor(label)
             raw_label = torch.tensor(raw_label)
             
-            # if self.padding:
-            #     _, _, d = image.shape
-                
-            #     if self.spatial_size > d: # add padding
-            #         p = (self.spatial_size - d) // 2
-            #         pad = (p, p) if d % 2 == 0 else (p, p+1)
-            #         image = F.pad(image, pad, "constant")
-            #         label = F.pad(label, pad, "constant")
-            #     elif self.spatial_size < d: # resize -> reducing depth
-            #         image = F.interpolate(image, size=(self.spatial_size), mode='nearest')
-            #         label = F.interpolate(label, size=(self.spatial_size), mode='nearest')
-            
             image = F.pad(image, self.pad, "constant", 0)
             label = F.pad(label, self.pad, "constant", 0)
             
@@ -118,29 +106,6 @@ class AMOSDataset(Dataset):
             if self.mode == "test": self.cache[data_path[0]]["raw_label"] = raw_label
             
             return self.cache[data_path[0]]
-        
-    def nii2tensor(self):
-        assert self.data_dict != None, "data_dict has not been assigned"
-        for phase in ["train", "val"]:
-            p = "Tr" if phase == "train" else "Va"
-            image_dir = os.path.join(self.tensor_dir, f"images{p}")
-            label_dir = os.path.join(self.tensor_dir, f"labels{p}")
-            
-            os.makedirs(image_dir, exist_ok=True)
-            os.makedirs(label_dir, exist_ok=True)
-            
-            for img, label in zip(tqdm(self.data_dict[phase]["images"]), self.data_dict[phase]["labels"]):
-                name = os.path.basename(img)
-                patient = name.split(".")[0]
-                
-                img = nibabel.load(img).get_fdata()
-                label = nibabel.load(label).get_fdata()
-                
-                img = torch.from_numpy(img).permute(2, 1, 0)
-                label = torch.from_numpy(label).permute(2, 1, 0)
-                
-                torch.save(img, os.path.join(image_dir, f"{patient}.pt"))
-                torch.save(label, os.path.join(label_dir, f"{patient}.pt"))
         
     def __len__(self):
         return len(self.data_list)
