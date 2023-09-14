@@ -1,5 +1,3 @@
-from collections import OrderedDict
-
 import os
 import wandb
 from tqdm import tqdm
@@ -7,10 +5,7 @@ import numpy as np
 from medpy.metric.binary import dc, hd95
 
 import torch 
-import torch.nn as nn 
-import torch.nn.functional as F
-import torch.multiprocessing as mp
-from torch.nn.parallel import DataParallel, DistributedDataParallel
+from torch.nn.parallel import DataParallel
 
 from monai.data import DataLoader
 from monai.utils import set_determinism
@@ -20,8 +15,7 @@ from light_training.utils.lr_scheduler import LinearWarmupCosineAnnealingLR
 from engine import Engine
 from models.model_type import ModelType
 from utils import parse_args, get_data_path, get_dataloader
-from losses.utils import dist_map_transform
-from losses.hub import *
+
 set_determinism(123)
 
         
@@ -41,7 +35,7 @@ class Trainer(Engine):
         num_gpus=1, 
         num_workers=2,
         losses="mse,bce,dice",
-        loss_combine='plus',
+        loss_combine='sum',
         log_dir="logs", 
         model_path=None,
         pretrained_path=None,
@@ -61,6 +55,7 @@ class Trainer(Engine):
             device=device,
             num_workers=num_workers,
             losses=losses,
+            loss_combine=loss_combine,
             model_path=model_path,
             project_name=project_name,
             wandb_name=wandb_name,
@@ -76,7 +71,6 @@ class Trainer(Engine):
         self.save_freq = save_freq
         self.num_gpus = num_gpus
         self.num_workers = num_workers
-        self.loss_combine = loss_combine
         self.log_dir = os.path.join("logs", log_dir)
         self.pretrained = pretrained_path is not None
         self.use_cache = use_cache
@@ -96,7 +90,6 @@ class Trainer(Engine):
         self.scheduler = LinearWarmupCosineAnnealingLR(self.optimizer,
                                                        warmup_epochs=10,
                                                        max_epochs=max_epochs)
-        self.dist_transform = dist_map_transform([1.0, 1.0, 1.0, 1.0], self.num_classes)
         
         if model_path is not None:
             self.load_checkpoint(model_path)
@@ -104,7 +97,7 @@ class Trainer(Engine):
             self.load_pretrained_weights(pretrained_path)
                 
         if self.num_gpus > 1:
-            self.model = DataParallel(self.model)
+            self.model = DataParallel(self.model, device_ids=[i for i in range(num_gpus)])
             
         if use_wandb:
             if model_path is None:
@@ -140,7 +133,6 @@ class Trainer(Engine):
                                           image_size=self.image_size,
                                           spatial_size=self.spatial_size,
                                           mode="train", 
-                                          one_hot=self.model_type == ModelType.Diffusion,
                                           remove_bg=self.remove_bg,
                                           use_cache=self.use_cache)
         self.dataloader = {"train": DataLoader(train_ds, batch_size=self.batch_size, shuffle=True),
@@ -219,6 +211,7 @@ class Trainer(Engine):
                 if self.auto_optim:
                     if self.use_amp:
                         self.scaler.scale(loss).backward()
+                        self.scaler.unscale_(self.optimizer)
                         self.scaler.step(self.optimizer)
                         self.scaler.update()
                     else:
@@ -257,24 +250,7 @@ class Trainer(Engine):
         return self.compute_loss(pred, label) 
     
     def compute_loss(self, preds, labels):
-        loss = []
-        for _loss in self.losses:
-            if isinstance(_loss, MSELoss):
-                loss.append(_loss(torch.sigmoid(preds), labels))
-            elif isinstance(_loss, CrossEntropyLoss):
-                loss.append(_loss(preds, labels))
-            elif isinstance(_loss, BCEWithLogitsLoss):
-                loss.append(_loss(preds, labels))
-            elif isinstance(_loss, DiceLoss):
-                loss.append(_loss(preds, labels))
-            elif isinstance(_loss, BoundaryLoss):
-                loss.append(_loss(F.softmax(preds, dim=1), self.dist_transform(labels)))
-                
-        if self.loss_combine == 'plus':
-            return sum(loss)
-        else:
-            # TODO : implement loss combinations
-            pass
+        return self.criterion(preds, labels) 
     
     def validation_step(self, batch):
         image, label = self.get_input(batch)  
@@ -309,15 +285,6 @@ class Trainer(Engine):
 
         print(f"mean_dice : {mean_dice}")
         self.log("mean_dice", mean_dice, epoch)
-
-# def main():
-#     dist_url = "env://"
-#     rank = int(os.environ['RANK'])
-#     world_size = int(os.environ(['WORLD_SIZE']))
-#     local_rank = int(os.environ['LOCAL_RANK'])
-#     torch.distributed.init_process_group(backend="nccl", init_method=dist_url, world_size=world_size, rank=rank)
-#     torch.cuda.set_device(local_rank)
-#     torch.distributed
 
 if __name__ == "__main__":
     args = parse_args()

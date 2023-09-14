@@ -1,6 +1,6 @@
 model_name: diff_unet  # "diff_unet"
 data_name: msd # "msd"
-image_size: 224
+image_size: 96
 spatial_size: 96
 classes: cfg/msd/classes.yaml
 device: cuda:0
@@ -9,14 +9,14 @@ pretrained_path: null # pretrained/basic_unet/encoder.pt
 max_epochs: 5000
 val_freq: 20000
 save_freq: 25
-batch_size: 5
+batch_size: 10
 num_workers: 2
 num_gpus: 5
 project_name: diff-unet
 wandb_name: null
 log_dir: test # "diff-unet-msd"
-losses: boundary # mse,cse,dice # e.g ce,mse,dice,cse,boundary,focal
-loss_combine: plus
+losses: cse,boundary,dice # mse,cse,dice # e.g ce,mse,dice,cse,boundary,dice_ce,dice_focal,generalized_dice
+loss_combine: mean # sum / mean
 remove_bg: true
 use_wandb: false  # false
 use_amp: true  # true

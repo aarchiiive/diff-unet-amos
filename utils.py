@@ -9,8 +9,8 @@ from collections import OrderedDict
 
 from monai import transforms
 
-from dataloader.amos_dataset import AMOSDataset
-from dataloader.msd_dataset import MSDDataset
+from dataset.amos_dataset import AMOSDataset
+from dataset.msd_dataset import MSDDataset
 from models.model_hub import ModelHub
 from models.model_type import ModelType
 
@@ -44,7 +44,6 @@ def get_dataloader(
     spatial_size: int = 96, 
     num_samples: int = 1, 
     mode: str = "train", 
-    one_hot: bool = True,
     remove_bg: bool = False,
     use_cache: bool = True,
 ):
@@ -146,9 +145,8 @@ def get_dataloader(
             transform=transform[p], 
             data_path=data_path, 
             mode=p,
-            one_hot=one_hot,
             remove_bg=remove_bg,
-            use_cache=use_cache and (p not in ["val", "test"]),
+            use_cache=use_cache and (p == "train"),
         )
 
     if mode == "train":

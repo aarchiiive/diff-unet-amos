@@ -12,9 +12,9 @@ from torchvision import transforms
 from monai.data import DataLoader
 from monai.inferers import SlidingWindowInferer
 
-from dataloader.base_dataset import BaseDataset
+from dataset.base_dataset import BaseDataset
 from models.model_type import ModelType
-from losses.hub import load_losses
+from losses.loss import Loss
 from utils import model_hub, get_model_type, get_class_names
 
 class Engine:
@@ -28,6 +28,7 @@ class Engine:
         device="cpu",
         num_workers=2,
         losses="mse,cse,dice",
+        loss_combine='sum',
         model_path=None,
         project_name=None,
         wandb_name=None,
@@ -47,6 +48,7 @@ class Engine:
         self.device = torch.device(device)
         self.num_workers = num_workers
         self.losses = losses
+        self.loss_combine = loss_combine
         self.model_path = model_path
         self.project_name = project_name
         self.wandb_name = wandb_name
@@ -54,6 +56,7 @@ class Engine:
         self.use_amp = use_amp
         self.use_cache = use_cache
         self.use_wandb = use_wandb
+        self.one_hot = True # self.model_type == ModelType.Diffusion
         self.mode = mode
         self.global_step = 0
         self.best_mean_dice = 0
@@ -69,7 +72,7 @@ class Engine:
         
         self.scaler = torch.cuda.amp.GradScaler()
         self.tensor2pil = transforms.ToPILImage()
-        self.losses = load_losses(losses.split(','), self.num_classes)
+        self.criterion = Loss(losses, self.num_classes, self.loss_combine, self.one_hot)
         self.window_infer = SlidingWindowInferer(roi_size=[spatial_size, width, height],
                                                  sw_batch_size=1,
                                                  overlap=0.6)
@@ -136,13 +139,12 @@ class Engine:
         elif self.mode == "test":
             label = batch["raw_label"]
             
-        label = self.convert_labels(label) 
-        label = label.float()
+        label = self.convert_labels(label).float()
         
         return image, label
 
     def convert_labels(self, labels: torch.Tensor):
-        if self.model_type == ModelType.Diffusion:
+        if self.one_hot:
             labels_new = []
             if self.remove_bg:
                 for i in range(1, self.num_classes+1):
@@ -154,7 +156,7 @@ class Engine:
             labels_new = torch.cat(labels_new, dim=1)
             return labels_new 
         
-        elif self.model_type == ModelType.SwinUNETR:
+        else:
             return labels
 
     def get_numpy_image(self, t: torch.Tensor, shape: tuple, is_label: bool = False):

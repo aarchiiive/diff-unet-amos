@@ -19,7 +19,6 @@ class BaseDataset(Dataset):
                  transform: transforms = None, 
                  data_path: Optional[str] = None, 
                  mode: Optional[str] = "train",
-                 one_hot: Optional[bool] = True,
                  remove_bg: Optional[bool] = True,
                  use_cache: Optional[bool] = True) -> None:
         super().__init__()
@@ -31,7 +30,6 @@ class BaseDataset(Dataset):
         self.padding = padding
         self.data_path = data_path
         self.mode = mode
-        self.one_hot = one_hot
         self.remove_bg = remove_bg
         self.use_cache = use_cache
         
@@ -75,15 +73,14 @@ class BaseDataset(Dataset):
             label = torch.transpose(label, 0, 2).contiguous()
             raw_label = torch.transpose(raw_label, 0, 2).contiguous()
             
-            if self.one_hot:
-                image = image.unsqueeze(0)
-                label = label.unsqueeze(0)
-                raw_label = raw_label.unsqueeze(0)
+            image = image.unsqueeze(0)
+            label = label.unsqueeze(0)
+            raw_label = raw_label.unsqueeze(0)
             
             if self.resize:
                 image = self.resize(image)
                 label = self.resize(label)
-            
+
             self.cache[data_path[0]] = {
                 "image": image,
                 "label": label

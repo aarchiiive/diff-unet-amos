@@ -1,23 +1,23 @@
-model_name: diff_unet  # "diff_unet"
+model_name: swin_unetr # diff_unet  # "diff_unet"
 data_name: amos # "msd"
 image_size: 96
 spatial_size: 96
 classes: cfg/amos/classes.yaml
 device: cuda:0
-model_path: null # logs/amos/weights/epoch_600.pt
+model_path: null # logs/diff-unet-msd-ssl-no-bg-dice/weights/epoch_300.pt
+pretrained_path: null # pretrained/basic_unet/encoder.pt
 max_epochs: 5000
 val_freq: 20000
-save_freq: 25
-batch_size: 10
+save_freq: 20
+batch_size: 15
 num_workers: 2
 num_gpus: 5
-project_name: diff-unet
+project_name: swin-unetr
 wandb_name: null
-log_dir: test # "diff-unet-msd"
-losses: mse,bce,dice # e.g mse,dice,cse,boundary
-loss_combine: plus
-pretrained: true
-use_wandb: false  # false
-use_amp: false  # true
-use_cache: false  # true
-
+log_dir: swin-unetr-amos # "diff-unet-msd"
+losses: mse,cse,dice # mse,cse,dice # e.g ce,mse,dice,cse,boundary,dice_ce,dice_focal,generalized_dice
+loss_combine: mean # sum / mean
+remove_bg: true
+use_wandb: true  # false
+use_amp: true  # true
+use_cache: true  # true

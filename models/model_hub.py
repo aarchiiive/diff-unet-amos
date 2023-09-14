@@ -1,7 +1,4 @@
-
-
-
-from typing import Any
+from typing import Any, Tuple
 
 from models.diff_unet import DiffUNet
 from models.smooth_diff_unet import SmoothDiffUNet
@@ -25,5 +22,5 @@ class ModelHub:
         
         return model
 
-    def parse_image_size(self, **kwargs):
+    def parse_image_size(self, **kwargs) -> Tuple[int, int, int]:
         return (kwargs['spatial_size'], kwargs['image_size'], kwargs['image_size'])

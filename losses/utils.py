@@ -271,34 +271,29 @@ def probs2one_hot(probs: Tensor) -> Tensor:
 
     return res
 
+def eucl_distance(mask: torch.Tensor, dtype: torch.dtype):
+    """
+    torch implementation of the code below
+    https://github.com/scipy/scipy/blob/686422c4f0a71be1b4258309590fd3e9de102e18/scipy/ndimage/_morphology.py#L2318
+    """
+    ft = torch.zeros((mask.ndim,) + mask.shape, dtype=dtype).to(mask.device)
+    # dt = ft - torch.stack(torch.meshgrid([torch.arange(0, size) for size in mask.shape]), dim=0).to(mask.device)
+    dt = ft - torch.Tensor(np.indices(mask.shape)).to(mask.device)
+    dt = torch.mul(dt, dt)
+    dt = torch.sum(dt, dim=0)
+    dt = torch.sqrt(dt)
 
-def eucl_distance(mask, resolution):
-    # dim = len(resolution)
-    coords = torch.nonzero(mask)
-    distances = torch.zeros_like(mask)
-    print(torch.unique(coords, ))
-    print(distances)
+    return dt
 
-    for coord in coords:
-        dist = torch.norm(coord * resolution, dim=0)
-        distances[tuple(coord)] = dist
-
-    return distances
-
-def one_hot2dist(seg: torch.Tensor, resolution, dtype=None):
+def one_hot2dist(seg: torch.Tensor):
     K = seg.shape[0]
-    res = torch.zeros_like(seg, dtype=dtype)
-    resolution = torch.tensor(resolution).to(seg.device)
+    res = torch.zeros_like(seg, dtype=seg.dtype).to(seg.device)
     
-    for k in tqdm(range(K)):
+    for k in range(K):
         posmask = seg[k].bool()
         negmask = ~posmask
-        
-        print(posmask)
-        print(negmask)
-        
-        neg_dist = eucl_distance(negmask, resolution) * negmask
-        pos_dist = (eucl_distance(posmask, resolution) - 1) * posmask
+        neg_dist = eucl_distance(negmask, seg.dtype) * negmask
+        pos_dist = (eucl_distance(posmask, seg.dtype) - 1) * posmask
         res[k] = neg_dist - pos_dist
 
     return res
@@ -449,10 +444,5 @@ def gt_transform(resolution: Tuple[float, ...], K: int) -> Callable[[D], Tensor]
         itemgetter(0)  # Then pop the element to go back to img shape
     ])
 
-def dist_map_transform(resolution: Tuple[float, ...], K: int) -> Callable[[D], Tensor]:
-    return transforms.Compose([
-        # gt_transform(resolution, K),
-        # lambda t: t.cpu().numpy(),
-        partial(one_hot2dist, resolution=resolution),
-        # lambda nd: torch.tensor(nd, dtype=torch.float32)
-    ])
+def dist_map_transform():
+    return one_hot2dist
