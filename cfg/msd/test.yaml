@@ -4,10 +4,11 @@ image_size: 224
 spatial_size: 96
 classes: cfg/msd/classes.yaml
 device: cuda:0
-model_path: logs/diff-unet-msd-ssl/weights/epoch_575.pt
+model_path: logs/diff-unet-msd-ssl-no-bg/weights/epoch_300.pt
 pretrained: true
 project_name: diff-unet-test
-wandb_name: diff-unet-msd-ssl
+wandb_name: diff-unet-msd-ssl-no-bg
+remove_bg: true
 use_wandb: false  # true
 use_cache: false
 use_amp: true  # true

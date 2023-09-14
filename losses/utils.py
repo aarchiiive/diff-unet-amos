@@ -259,7 +259,7 @@ def np_class2one_hot(seg: np.ndarray, K: int) -> np.ndarray:
 
         return res
         # return class2one_hot(torch.from_numpy(seg.copy()).type(torch.int64), K).numpy()
-
+        
 
 def probs2one_hot(probs: Tensor) -> Tensor:
     _, K, *_ = probs.shape
@@ -268,6 +268,38 @@ def probs2one_hot(probs: Tensor) -> Tensor:
     res = class2one_hot(probs2class(probs), K)
     assert res.shape == probs.shape
     assert one_hot(res)
+
+    return res
+
+
+def eucl_distance(mask, resolution):
+    # dim = len(resolution)
+    coords = torch.nonzero(mask)
+    distances = torch.zeros_like(mask)
+    print(torch.unique(coords, ))
+    print(distances)
+
+    for coord in coords:
+        dist = torch.norm(coord * resolution, dim=0)
+        distances[tuple(coord)] = dist
+
+    return distances
+
+def one_hot2dist(seg: torch.Tensor, resolution, dtype=None):
+    K = seg.shape[0]
+    res = torch.zeros_like(seg, dtype=dtype)
+    resolution = torch.tensor(resolution).to(seg.device)
+    
+    for k in tqdm(range(K)):
+        posmask = seg[k].bool()
+        negmask = ~posmask
+        
+        print(posmask)
+        print(negmask)
+        
+        neg_dist = eucl_distance(negmask, resolution) * negmask
+        pos_dist = (eucl_distance(posmask, resolution) - 1) * posmask
+        res[k] = neg_dist - pos_dist
 
     return res
 
@@ -289,36 +321,6 @@ def probs2one_hot(probs: Tensor) -> Tensor:
 #         # since this is one-hot encoded, another class will supervise that pixel
 
 #     return res
-
-def eucl_distance(mask, resolution):
-    # dim = len(resolution)
-    coords = torch.nonzero(mask)
-    distances = torch.zeros_like(mask)
-    print(coords)
-    print(distances)
-
-    for coord in coords:
-        dist = torch.norm(coord * resolution, dim=0)
-        distances[tuple(coord)] = dist
-
-    return distances
-
-def one_hot2dist(seg, resolution, dtype=None):
-    K = seg.shape[0]
-    res = torch.zeros_like(seg, dtype=dtype)
-    resolution = torch.tensor(resolution).to(seg.device)
-    
-    for k in tqdm(range(K)):
-        posmask = seg[k].bool()
-
-        if posmask.any():
-            negmask = ~posmask
-            neg_distances = eucl_distance(negmask, resolution) * negmask
-            pos_distances = (eucl_distance(posmask, resolution) - 1) * posmask
-            res[k] = neg_distances - pos_distances
-
-    return res
-
 
 def one_hot2hd_dist(seg: np.ndarray, resolution: Tuple[float, float, float] = None,
                     dtype=None) -> np.ndarray:

@@ -1,3 +1,5 @@
+from typing import Sequence
+
 import os
 import wandb
 
@@ -10,8 +12,10 @@ from torchvision import transforms
 from monai.data import DataLoader
 from monai.inferers import SlidingWindowInferer
 
+from dataloader.base_dataset import BaseDataset
+from models.model_type import ModelType
 from losses.hub import load_losses
-from utils import model_hub, get_class_names
+from utils import model_hub, get_model_type, get_class_names
 
 class Engine:
     def __init__(
@@ -34,6 +38,7 @@ class Engine:
         mode="train",
     ):
         self.model_name = model_name
+        self.model_type = get_model_type(model_name)
         self.data_name = data_name
         self.image_size = image_size
         self.spatial_size = spatial_size
@@ -50,14 +55,12 @@ class Engine:
         self.use_cache = use_cache
         self.use_wandb = use_wandb
         self.mode = mode
-        self.pretrained = False
         self.global_step = 0
         self.best_mean_dice = 0
         self.loss = 0
         
         if isinstance(image_size, tuple):
-            width = image_size[0]
-            height = image_size[1]
+            width, height = image_size
         elif isinstance(image_size, int):
             width = height = image_size
         
@@ -71,7 +74,7 @@ class Engine:
                                                  sw_batch_size=1,
                                                  overlap=0.6)
         
-    def load_checkpoint(self, model_path):
+    def load_checkpoint(self, model_path: str):
         pass # to be implemented
     
     def load_model(self):
@@ -93,7 +96,6 @@ class Engine:
         save_path,
     ):
         save_dir = os.path.dirname(save_path)
-
         os.makedirs(save_dir, exist_ok=True)
         
         if isinstance(model, nn.DataParallel):
@@ -115,7 +117,7 @@ class Engine:
 
         print(f"model is saved in {save_path}")
     
-    def get_dataloader(self, dataset, batch_size=1, shuffle=False):
+    def get_dataloader(self, dataset: BaseDataset, batch_size: int = 1, shuffle: bool = False):
         return DataLoader(dataset,
                           batch_size=batch_size,
                           shuffle=shuffle,
@@ -127,7 +129,7 @@ class Engine:
     def set_losses(self):
         pass
         
-    def get_input(self, batch):
+    def get_input(self, batch: dict):
         image = batch["image"]
         if self.mode == "train":
             label = batch["label"]
@@ -139,19 +141,23 @@ class Engine:
         
         return image, label
 
-    def convert_labels(self, labels):
-        labels_new = []
-        if self.remove_bg:
-            for i in range(1, self.num_classes+1):
-                labels_new.append(labels == i)
-        else:
-            for i in range(self.num_classes):
-                labels_new.append(labels == i)
+    def convert_labels(self, labels: torch.Tensor):
+        if self.model_type == ModelType.Diffusion:
+            labels_new = []
+            if self.remove_bg:
+                for i in range(1, self.num_classes+1):
+                    labels_new.append(labels == i)
+            else:
+                for i in range(self.num_classes):
+                    labels_new.append(labels == i)
+            
+            labels_new = torch.cat(labels_new, dim=1)
+            return labels_new 
         
-        labels_new = torch.cat(labels_new, dim=1)
-        return labels_new 
+        elif self.model_type == ModelType.SwinUNETR:
+            return labels
 
-    def get_numpy_image(self, t, shape, is_label=False):
+    def get_numpy_image(self, t: torch.Tensor, shape: tuple, is_label: bool = False):
         _, _, d, w, h = shape
         index = int(d * 0.75)
         if is_label: t = torch.argmax(t, dim=1)
@@ -165,7 +171,11 @@ class Engine:
   
         return t
     
-    def tensor2images(self, image, label, output, shape):
+    def tensor2images(self, 
+                      image: torch.Tensor, 
+                      label: torch.Tensor, 
+                      output: torch.Tensor, 
+                      shape: tuple):
         return {
             "image" : self.get_numpy_image(image, shape),
             "label" : self.get_numpy_image(label, shape, is_label=True),
@@ -181,7 +191,13 @@ class Engine:
             pass
             # wandb.log()
             
-    def log_plot(self, vis_data, mean_dice, mean_hd95, mean_iou, dices, filename):
+    def log_plot(self, 
+                 vis_data: dict, 
+                 mean_dice: float, 
+                 mean_hd95: float, 
+                 mean_iou: float, 
+                 dices: Sequence[float], 
+                 filename: str):
         patient = os.path.basename(filename).split(".")[0]
         
         plot = wandb.Image(

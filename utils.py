@@ -1,58 +1,55 @@
+from typing import Dict, Sequence, Union, Tuple
+
 import os
 import glob 
 import yaml
-import wandb
 import argparse
 from prettytable import PrettyTable
 from collections import OrderedDict
 
-import torch
-import torch.nn as nn
-
 from monai import transforms
 
-from dataloader.amosloader import AMOSDataset
-from dataloader.msdloader import MSDDataset
-from models.diff_unet import DiffUNet
-from models.smooth_diff_unet import SmoothDiffUNet
+from dataloader.amos_dataset import AMOSDataset
+from dataloader.msd_dataset import MSDDataset
+from models.model_hub import ModelHub
+from models.model_type import ModelType
 
 
-def model_hub(model_name, **kwargs):
-    if model_name == "diff_unet":
-        model = DiffUNet(**kwargs)
-    elif model_name == "smooth_diff_unet":
-        model = SmoothDiffUNet(**kwargs)
-    else:
-        raise ValueError(f"Invalid model_type: {model_name}")
+def model_hub(model_name: str, **kwargs):
+    return ModelHub().__call__(model_name, **kwargs)
 
-    return model
+def get_model_type(model_name: str):
+    assert model_name in ["diff_unet", "smooth_diff_unet", "swin_unetr"]
+    if model_name in ["diff_unet", "smooth_diff_unet"]:
+        return ModelType.Diffusion
+    elif model_name in ["swin_unetr"]:
+        return ModelType.SwinUNETR
 
-def get_data_path(name="amos"):
+def get_data_path(name: str = "amos"):
     if name == "amos":
         return "/home/song99/ws/datasets/AMOS"
     elif name == "msd":
         return "/home/song99/ws/datasets/MSD"
 
-def get_class_names(classes, remove_bg=False, bg_index=0):
+def get_class_names(classes: Dict[int, str], remove_bg: bool =False, bg_index: int = 0):
      with open(classes, "r") as f:
-        if remove_bg:
-            classes = OrderedDict(yaml.safe_load(f))
-            del classes[0]
-            return classes
-        else:
-            return OrderedDict(yaml.safe_load(f))
+        classes = OrderedDict(yaml.safe_load(f))
+        if remove_bg: del classes[0]
+        return classes
 
 def get_dataloader(
-    data_path, 
-    data_name, 
-    image_size=256, 
-    spatial_size=96, 
-    num_samples=1, 
-    mode="train", 
-    remove_bg=False,
-    use_cache=True,
+    data_path: str, 
+    data_name: str, 
+    image_size: int = 256, 
+    spatial_size: int = 96, 
+    num_samples: int = 1, 
+    mode: str = "train", 
+    one_hot: bool = True,
+    remove_bg: bool = False,
+    use_cache: bool = True,
 ):
-    train_transform = transforms.Compose(
+    transform = {}
+    transform["train"] = transforms.Compose(
         [   
             transforms.ScaleIntensityRanged(
                 keys=["image"], a_min=-175, a_max=250.0, b_min=0, b_max=1.0, clip=True
@@ -91,7 +88,7 @@ def get_dataloader(
         ]
     )
     
-    val_transform = transforms.Compose(
+    transform["val"] = transforms.Compose(
         [   
             transforms.ScaleIntensityRanged(
                 keys=["image"], a_min=-175, a_max=250.0, b_min=0, b_max=1.0, clip=True
@@ -105,7 +102,7 @@ def get_dataloader(
         ]
     )
 
-    test_transform = transforms.Compose(
+    transform["test"] = transforms.Compose(
         [   
             transforms.ScaleIntensityRanged(
                 keys=["image"], a_min=-175, a_max=250.0, b_min=0, b_max=1.0, clip=True
@@ -121,9 +118,12 @@ def get_dataloader(
         "val" : 
             {"images" : sorted(glob.glob(f"{data_path}/imagesVa/*.nii.gz")),
              "labels" : sorted(glob.glob(f"{data_path}/labelsVa/*.nii.gz"))},
+        "test" : 
+            {"images" : sorted(glob.glob(f"{data_path}/imagesVa/*.nii.gz")),
+             "labels" : sorted(glob.glob(f"{data_path}/labelsVa/*.nii.gz"))},
     }
     
-    for p in ["train", "val"]:
+    for p in ["train", "val", "test"]:
         paired = []
         for image_path, label_path in zip(data[p]["images"], data[p]["labels"]):
             pair = [image_path, label_path]
@@ -135,46 +135,28 @@ def get_dataloader(
         Dataset = AMOSDataset
     elif data_name == "msd":
         Dataset = MSDDataset
-        
-    train_dataset = Dataset(
-        data["train"]["files"], 
-        image_size=image_size,
-        spatial_size=spatial_size,
-        transform=train_transform, 
-        data_dir=data_path, 
-        mode="train",
-        remove_bg=remove_bg,
-        use_cache=use_cache
-    )
-
-    val_dataset = Dataset(
-        data["val"]["files"], 
-        image_size=image_size,
-        spatial_size=spatial_size,
-        transform=val_transform, 
-        data_dir=data_path, 
-        mode="val",
-        remove_bg=remove_bg,
-        use_cache=False
-    )
-        
-    test_dataset = Dataset(
-        data["val"]["files"], 
-        image_size=image_size,
-        spatial_size=spatial_size,
-        transform=test_transform, 
-        data_dir=data_path, 
-        mode="test",
-        remove_bg=remove_bg,
-        use_cache=False
-    )
+    
+    dataset = {}
+    
+    for p in ["train", "val", "test"]:
+        dataset[p] = Dataset(
+            data_list=data[p]["files"], 
+            image_size=image_size,
+            spatial_size=spatial_size,
+            transform=transform[p], 
+            data_path=data_path, 
+            mode=p,
+            one_hot=one_hot,
+            remove_bg=remove_bg,
+            use_cache=use_cache and (p not in ["val", "test"]),
+        )
 
     if mode == "train":
-        return [train_dataset, val_dataset]
+        return [dataset["train"], dataset["val"]]
     elif mode == "test":
-        return test_dataset
+        return dataset["test"]
     else:
-        return [train_dataset, val_dataset, test_dataset]
+        return [dataset["train"], dataset["val"], dataset["test"]]
 
 def parse_args():
     parser = argparse.ArgumentParser()

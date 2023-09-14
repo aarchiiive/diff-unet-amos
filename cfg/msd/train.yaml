@@ -4,8 +4,8 @@ image_size: 224
 spatial_size: 96
 classes: cfg/msd/classes.yaml
 device: cuda:0
-model_path: logs/diff-unet-msd-ssl/weights/epoch_300.pt
-pretrained_path: pretrained/basic_unet/encoder.pt
+model_path: null # logs/diff-unet-msd-ssl-no-bg-dice/weights/epoch_300.pt
+pretrained_path: null # pretrained/basic_unet/encoder.pt
 max_epochs: 5000
 val_freq: 20000
 save_freq: 25
@@ -14,9 +14,10 @@ num_workers: 2
 num_gpus: 5
 project_name: diff-unet
 wandb_name: null
-log_dir: diff-unet-msd-ssl # "diff-unet-msd"
-losses: mse,bce,dice # e.g ce,mse,dice,cse,boundary,focal
+log_dir: test # "diff-unet-msd"
+losses: boundary # mse,cse,dice # e.g ce,mse,dice,cse,boundary,focal
 loss_combine: plus
-use_wandb: true  # false
+remove_bg: true
+use_wandb: false  # false
 use_amp: true  # true
-use_cache: true  # true
+use_cache: false  # true

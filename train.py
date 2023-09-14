@@ -18,6 +18,7 @@ from monai.utils import set_determinism
 from light_training.utils.lr_scheduler import LinearWarmupCosineAnnealingLR
 
 from engine import Engine
+from models.model_type import ModelType
 from utils import parse_args, get_data_path, get_dataloader
 from losses.utils import dist_map_transform
 from losses.hub import *
@@ -139,6 +140,7 @@ class Trainer(Engine):
                                           image_size=self.image_size,
                                           spatial_size=self.spatial_size,
                                           mode="train", 
+                                          one_hot=self.model_type == ModelType.Diffusion,
                                           remove_bg=self.remove_bg,
                                           use_cache=self.use_cache)
         self.dataloader = {"train": DataLoader(train_ds, batch_size=self.batch_size, shuffle=True),
@@ -173,7 +175,6 @@ class Trainer(Engine):
                             assert val_out is not None 
 
                         val_outputs.append(val_out)
-
                     val_outputs = torch.tensor(val_outputs)
 
                     num_val = len(val_outputs[0])
@@ -212,7 +213,7 @@ class Trainer(Engine):
                 }
                 
                 for param in self.model.parameters(): param.grad = None
-                loss = self.training_step(batch)
+                loss = self.training_step(batch).float()
                 running_loss += loss.item()
                 
                 if self.auto_optim:
@@ -245,12 +246,15 @@ class Trainer(Engine):
     def training_step(self, batch):
         image, label = self.get_input(batch)
         
-        x_start = label
-        x_start = (x_start) * 2 - 1
-        x_t, t, _ = self.model(x=x_start, pred_type="q_sample")
-        pred_xstart = self.model(x=x_t, step=t, image=image, pred_type="denoise")
+        if self.model_type == ModelType.Diffusion:
+            x_start = label
+            x_start = (x_start) * 2 - 1
+            x_t, t, _ = self.model(x=x_start, pred_type="q_sample")
+            pred = self.model(x=x_t, step=t, image=image, pred_type="denoise")
+        elif self.model_type == ModelType.SwinUNETR:
+            pred = self.model(image)
 
-        return self.compute_loss(pred_xstart, label) 
+        return self.compute_loss(pred, label) 
     
     def compute_loss(self, preds, labels):
         loss = []

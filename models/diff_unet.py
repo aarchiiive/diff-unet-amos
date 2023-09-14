@@ -1,7 +1,10 @@
+from typing import Sequence, Tuple, Union, List
+
 import torch 
 import torch.nn as nn 
 
 # from layers.basic_unet import BasicUNetEncoder
+from layers.pretrained.basic_unet import BasicUNetEncoder
 from layers.basic_unet_denoise import BasicUNetDecoder
 
 from guided_diffusion.gaussian_diffusion import get_named_beta_schedule, ModelMeanType, ModelVarType,LossType
@@ -11,20 +14,19 @@ from guided_diffusion.resample import UniformSampler
 
 class DiffUNet(nn.Module):
     def __init__(self, 
-                 image_size,
-                 spatial_size,
-                 num_classes,
-                 device,
-                 pretrained,
-                 mode,
+                 image_size: Union[int, Tuple[int, int]],
+                 spatial_size: int,
+                 num_classes: int,
+                 device: torch.device,
+                 pretrained: bool,
+                 mode: str,
                  ):
         super().__init__()
         
         if isinstance(image_size, tuple):
-            self.width = image_size[0]
-            self.height = image_size[1]
+            width, height = image_size
         elif isinstance(image_size, int):
-            self.width = self.height = image_size
+            width = height = image_size
             
         self.spatial_size = spatial_size
         self.num_classes = num_classes
@@ -32,10 +34,11 @@ class DiffUNet(nn.Module):
         self.pretrained = pretrained
         self.mode = mode
         
-        if pretrained:
-            from layers.pretrained.basic_unet import BasicUNetEncoder
-        else:
-            from layers.basic_unet import BasicUNetEncoder
+        # deprecated soon
+        # if pretrained:
+        #     from layers.pretrained.basic_unet import BasicUNetEncoder
+        # else:
+        #     from layers.basic_unet import BasicUNetEncoder
             
         self.embed_model = BasicUNetEncoder(3, 1, 2, [64, 64, 128, 256, 512, 64])
         self.model = BasicUNetDecoder(3, num_classes+1, num_classes, [64, 64, 128, 256, 512, 64], 

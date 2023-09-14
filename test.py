@@ -29,7 +29,6 @@ class Tester(Engine):
         device="cpu", 
         project_name="diff-unet-test",
         wandb_name=None,
-        pretrained=True,
         remove_bg=False,
         use_amp=True,
         use_cache=False,
@@ -52,7 +51,6 @@ class Tester(Engine):
             mode="test",
         )
         self.epoch = epoch
-        self.pretrained = pretrained
         self.model = self.load_model()
         self.load_checkpoint(model_path)
         self.set_dataloader()    
@@ -66,7 +64,6 @@ class Tester(Engine):
     def load_checkpoint(self, model_path):
         if self.epoch is not None:
             model_path = os.path.join(os.path.dirname(model_path), f"epoch_{self.epoch}.pt")
-        print(self.num_classes)
         state_dict = torch.load(model_path)
         self.model.load_state_dict(state_dict['model'])
             
@@ -100,34 +97,64 @@ class Tester(Engine):
         ious = OrderedDict({v : 0 for v in self.class_names.values()})
         
         print(label.shape)
-        for i in range(self.num_classes):
-            pred = output[:, i]
-            gt = label[:, i]
-            
-            if torch.sum(pred) > 0 and torch.sum(gt) > 0:
-                dice = dc(pred, gt)
-                hd = hd95(pred, gt)
-                iou = iou_score(pred, gt)
-            elif torch.sum(pred) > 0 and torch.sum(gt) == 0:
-                dice = 1
-                hd = 0
-                iou = 1
-            else:
-                dice = 0
-                hd = 0
-                iou = 0
-            
-            dices[self.class_names[i]] = dice
-            hds[self.class_names[i]] = hd
-            ious[self.class_names[i]] = iou
-            
-            table = PrettyTable()
-            table.title = self.class_names[i]
-            table.field_names = ["metric", "score"]
-            table.add_row(["dice", f"{dice:.4f}"])
-            table.add_row(["hd95", f"{hd:.4f}"])
-            table.add_row(["iou", f"{iou:.4f}"])
-            print(table)
+        if self.remove_bg:
+            for i in range(1, self.num_classes+1):
+                pred = output[:, i-1]
+                gt = label[:, i-1]
+                
+                if torch.sum(pred) > 0 and torch.sum(gt) > 0:
+                    dice = dc(pred, gt)
+                    hd = hd95(pred, gt)
+                    iou = iou_score(pred, gt)
+                elif torch.sum(pred) > 0 and torch.sum(gt) == 0:
+                    dice = 1
+                    hd = 0
+                    iou = 1
+                else:
+                    dice = 0
+                    hd = 0
+                    iou = 0
+                
+                dices[self.class_names[i]] = dice
+                hds[self.class_names[i]] = hd
+                ious[self.class_names[i]] = iou
+                
+                table = PrettyTable()
+                table.title = self.class_names[i]
+                table.field_names = ["metric", "score"]
+                table.add_row(["dice", f"{dice:.4f}"])
+                table.add_row(["hd95", f"{hd:.4f}"])
+                table.add_row(["iou", f"{iou:.4f}"])
+                print(table)
+        else:
+            for i in range(self.num_classes):
+                pred = output[:, i]
+                gt = label[:, i]
+                
+                if torch.sum(pred) > 0 and torch.sum(gt) > 0:
+                    dice = dc(pred, gt)
+                    hd = hd95(pred, gt)
+                    iou = iou_score(pred, gt)
+                elif torch.sum(pred) > 0 and torch.sum(gt) == 0:
+                    dice = 1
+                    hd = 0
+                    iou = 1
+                else:
+                    dice = 0
+                    hd = 0
+                    iou = 0
+                
+                dices[self.class_names[i]] = dice
+                hds[self.class_names[i]] = hd
+                ious[self.class_names[i]] = iou
+                
+                table = PrettyTable()
+                table.title = self.class_names[i]
+                table.field_names = ["metric", "score"]
+                table.add_row(["dice", f"{dice:.4f}"])
+                table.add_row(["hd95", f"{hd:.4f}"])
+                table.add_row(["iou", f"{iou:.4f}"])
+                print(table)
         
         mean_dice = sum(dices.values()) / self.num_classes
         mean_hd95 = sum(hds.values()) / self.num_classes
