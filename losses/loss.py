@@ -74,13 +74,14 @@ class BoundaryLoss(_Loss):
                 # loss += torch.mean(torch.einsum("bkwh,bkwh->bkwh", pc, dc))
                 loss += torch.einsum("bkwh,bkwh->bkwh", pc, dc).mean()
             
-            return torch.log(loss) / (self.num_classes*probs.size(0))
+            # return torch.log(loss) / (self.num_classes*probs.size(0))
+            return loss / (self.num_classes*probs.size(0))
         else:
             pc = probs.to(probs.device)
             dc = dist_maps.to(probs.device)
             # loss += torch.mean(torch.einsum("bkwh,bkwh->bkwh", pc, dc))
 
-            return  torch.einsum("bkdwh,bkdwh->bkdwh", pc, dc).mean() / probs.size(0)
+            return torch.einsum("bkdwh,bkdwh->bkdwh", pc, dc).mean() / probs.size(0)
 
 
 # class HausdorffLoss:
