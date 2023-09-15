@@ -87,16 +87,15 @@ class Engine:
             spatial_size=self.spatial_size,
             num_classes=self.num_classes,
             device=self.device,
-            pretrained=self.pretrained,
             mode=self.mode).to(self.device)
     
     def save_model(
         self,
         model, 
-        optimizer, 
-        scheduler, 
-        epoch, 
-        save_path,
+        optimizer=None, 
+        scheduler=None, 
+        epoch=None, 
+        save_path=None, 
     ):
         save_dir = os.path.dirname(save_path)
         os.makedirs(save_dir, exist_ok=True)
@@ -106,8 +105,8 @@ class Engine:
             
         state = {
             'model': model.state_dict(),
-            'optimizer': optimizer.state_dict(),
-            'scheduler': scheduler.state_dict(),
+            'optimizer': optimizer.state_dict() if optimizer is not None else None,
+            'scheduler': scheduler.state_dict() if scheduler is not None else None,
             'epoch': epoch+1,
             'loss': self.loss,
             'global_step': self.global_step,
@@ -158,7 +157,19 @@ class Engine:
         
         else:
             return labels
-
+    
+    def infer(self, batch):
+        image, label = self.get_input(batch)    
+        
+        if self.model_type == ModelType.Diffusion:
+            output = self.window_infer(image, self.model, pred_type="ddim_sample")
+        elif self.model_type == ModelType.SwinUNETR:
+            output = self.window_infer(image, self.model)
+        output = torch.sigmoid(output)
+        output = (output > 0.5).float()
+            
+        return image, output, label
+    
     def get_numpy_image(self, t: torch.Tensor, shape: tuple, is_label: bool = False):
         _, _, d, w, h = shape
         index = int(d * 0.75)

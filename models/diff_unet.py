@@ -18,7 +18,6 @@ class DiffUNet(nn.Module):
                  spatial_size: int,
                  num_classes: int,
                  device: torch.device,
-                 pretrained: bool,
                  mode: str,
                  ):
         super().__init__()
@@ -31,7 +30,6 @@ class DiffUNet(nn.Module):
         self.spatial_size = spatial_size
         self.num_classes = num_classes
         self.device = torch.device(device)
-        self.pretrained = pretrained
         self.mode = mode
         
         # deprecated soon

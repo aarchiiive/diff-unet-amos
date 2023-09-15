@@ -1,14 +1,14 @@
-model_name: smooth_diff_unet  # "diff_unet"
+model_name: swin_unetr # smooth_diff_unet  # "diff_unet"
 data_name: amos
 image_size: 96
 spatial_size: 96
 classes: cfg/amos/classes.yaml
 device: cuda:1
-model_path: logs/smoothing-encoder-fft/weights/epoch_320.pt
-pretrained: true
-project_name: smoothing-encoder-fft
-wandb_name: diff-unet
+model_path: logs/swin-unetr-amos/weights/epoch_1180.pt
+project_name: swin-unetr-test
+wandb_name: swin-unetr-amos
+remove_bg: true
 use_wandb: false  # true
 use_cache: false
 use_amp: false  # true
-epoch: 80
+epoch: null

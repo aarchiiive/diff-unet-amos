@@ -195,7 +195,6 @@ class SmoothDiffUNet(DiffUNet):
         spatial_size,
         num_classes,
         device,
-        pretrained,
         mode,
     ):
         super().__init__(
@@ -203,7 +202,6 @@ class SmoothDiffUNet(DiffUNet):
             spatial_size,
             num_classes,
             device,
-            pretrained,
             mode,
         )
         self.embed_model = SmoothUNetEncoder(3, 1, 2, [64, 64, 128, 256, 512, 64], image_size, spatial_size)

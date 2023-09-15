@@ -86,10 +86,10 @@ class Trainer(Engine):
         
         self.set_dataloader()        
         self.model = self.load_model()
-        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=2e-4, weight_decay=1e-3)
-        self.scheduler = LinearWarmupCosineAnnealingLR(self.optimizer,
-                                                       warmup_epochs=10,
-                                                       max_epochs=max_epochs)
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=1e-4, weight_decay=1e-3)
+        # self.scheduler = LinearWarmupCosineAnnealingLR(self.optimizer,
+        #                                                warmup_epochs=10,
+        #                                                max_epochs=max_epochs)
         
         if model_path is not None:
             self.load_checkpoint(model_path)
@@ -115,7 +115,7 @@ class Trainer(Engine):
         state_dict = torch.load(model_path)
         self.model.load_state_dict(state_dict['model'])
         self.optimizer.load_state_dict(state_dict['optimizer'])
-        self.scheduler.load_state_dict(state_dict['scheduler'])
+        # self.scheduler.load_state_dict(state_dict['scheduler'])
         self.start_epoch = state_dict['epoch']
         self.global_step = state_dict['global_step']
         self.best_mean_dice = state_dict['best_mean_dice']
@@ -124,8 +124,11 @@ class Trainer(Engine):
         print(f"Checkpoint loaded from {model_path}")
         
     def load_pretrained_weights(self, pretrained_path):
-        self.model.embed_model.load_state_dict(torch.load(pretrained_path, map_location="cpu"))
-        print(f"Pretrained weights...")
+        if self.model_type == ModelType.Diffusion:
+            self.model.embed_model.load_state_dict(torch.load(pretrained_path, map_location="cpu"))
+        elif self.model_type == ModelType.SwinUNETR:
+            self.model.load_from(weights=torch.load(pretrained_path, map_location="cpu"))
+        print(f"Load pretrained weights... from {pretrained_path}")
             
     def set_dataloader(self):
         train_ds, val_ds = get_dataloader(data_path=get_data_path(self.data_name),
@@ -223,18 +226,18 @@ class Trainer(Engine):
                     t.set_postfix(loss=loss.item(), lr=lr)
                 t.update(1)
                 
-            self.scheduler.step()
+            # self.scheduler.step()
             
             self.loss = running_loss / len(self.dataloader["train"])
             # self.log("loss", running_loss / len(self.dataloader["train"]))
             self.log("loss", self.loss, step=epoch)
                     
         if (epoch + 1) % self.save_freq == 0:
-            self.save_model(self.model,
-                            self.optimizer,
-                            self.scheduler, 
-                            self.epoch,
-                            os.path.join(self.weights_path, f"epoch_{epoch+1}.pt"))
+            self.save_model(model=self.model,
+                            optimizer=self.optimizer,
+                            # self.scheduler, 
+                            epoch=self.epoch,
+                            save_path=os.path.join(self.weights_path, f"epoch_{epoch+1}.pt"))
 
     def training_step(self, batch):
         image, label = self.get_input(batch)
@@ -253,13 +256,10 @@ class Trainer(Engine):
         return self.criterion(preds, labels) 
     
     def validation_step(self, batch):
-        image, label = self.get_input(batch)  
+        _, output, target = self.infer(batch)
+        output = output.cpu().numpy()
+        target = target.cpu().numpy()
         
-        output = self.window_infer(image, self.model.module, pred_type="ddim_sample")
-        output = torch.sigmoid(output)
-        output = (output > 0.5).float().cpu().numpy()
-        target = label.cpu().numpy()
-
         dices = []
         hd = []
         for i in range(self.num_classes):
@@ -277,11 +277,11 @@ class Trainer(Engine):
 
         if mean_dice > self.best_mean_dice:
             self.best_mean_dice = mean_dice
-            self.save_model(self.model,
-                            self.optimizer,
-                            self.scheduler, 
-                            self.epoch,
-                            os.path.join(self.weights_path, f"best_{mean_dice:.4f}.pt"))
+            self.save_model(model=self.model,
+                            optimizer=self.optimizer,
+                            # self.scheduler, 
+                            epoch=self.epoch,
+                            save_path=os.path.join(self.weights_path, f"best_{mean_dice:.4f}.pt"))
 
         print(f"mean_dice : {mean_dice}")
         self.log("mean_dice", mean_dice, epoch)

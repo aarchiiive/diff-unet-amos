@@ -16,7 +16,8 @@ class ModelHub:
         elif model_name == "swin_unetr":
             model = SwinUNETR(img_size=self.parse_image_size(**kwargs),
                               in_channels=1,
-                              out_channels=kwargs['num_classes'])
+                              out_channels=kwargs['num_classes'],
+                              feature_size=48)
         else:
             raise ValueError(f"Invalid model_type: {model_name}")
         
