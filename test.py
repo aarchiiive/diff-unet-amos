@@ -9,6 +9,7 @@ from medpy.metric.binary import dc, hd95
 
 from monai.data import DataLoader
 from monai.utils import set_determinism
+from monai.metrics import DiceMetric
 
 from metric import iou_score
 from engine import Engine
@@ -53,6 +54,7 @@ class Tester(Engine):
         )
         self.epoch = epoch
         self.model = self.load_model()
+        self.dice_metric = DiceMetric(include_background=True, num_classes=2, reduction="mean", get_not_nans=False)
         self.load_checkpoint(model_path)
         self.set_dataloader()    
         
@@ -60,7 +62,8 @@ class Tester(Engine):
             wandb.init(project=self.project_name,
                        name=self.wandb_name,
                        config=self.__dict__)
-            self.table = wandb.Table(columns=["patient", "image", "dice", "hd95", "iou"]+[n for n in self.class_names.values()])
+            self.table = wandb.Table(columns=["patient", "image", "dice", "hd95", "iou"]+
+                                             [n for n in self.class_names.values()])
 
     def load_checkpoint(self, model_path):
         if self.epoch is not None:
@@ -111,19 +114,15 @@ class Tester(Engine):
         hds = OrderedDict({v : 0 for v in self.class_names.values()})
         ious = OrderedDict({v : 0 for v in self.class_names.values()})
         
-        if self.remove_bg:
-            loop = range(1, self.num_classes+1)
-        else:
-            loop = range(self.num_classes)
-            
-        for i in loop:
-            pred = output[:, i-1]
-            gt = label[:, i-1]
+        for i in range(self.num_classes):
+            pred = output[..., i].unsqueeze(0)
+            gt = label[..., i].unsqueeze(0)
             
             if torch.sum(pred) > 0 and torch.sum(gt) > 0:
-                dice = dc(pred, gt)
-                hd = hd95(pred, gt)
-                iou = iou_score(pred, gt)
+                # dice = dc(pred, gt)
+                dice = self.dice_metric(pred, gt)[0, 1]
+                # hd = hd95(pred, gt)
+                # iou = iou_score(pred, gt)
             elif torch.sum(pred) > 0 and torch.sum(gt) == 0:
                 dice = 1
                 hd = 0
@@ -133,31 +132,33 @@ class Tester(Engine):
                 hd = 0
                 iou = 0
             
+            if self.remove_bg: i += 1
+            
             dices[self.class_names[i]] = dice
-            hds[self.class_names[i]] = hd
-            ious[self.class_names[i]] = iou
+            # hds[self.class_names[i]] = hd
+            # ious[self.class_names[i]] = iou
             
             table = PrettyTable()
             table.title = self.class_names[i]
             table.field_names = ["metric", "score"]
             table.add_row(["dice", f"{dice:.4f}"])
-            table.add_row(["hd95", f"{hd:.4f}"])
-            table.add_row(["iou", f"{iou:.4f}"])
+            # table.add_row(["hd95", f"{hd:.4f}"])
+            # table.add_row(["iou", f"{iou:.4f}"])
             print(table)
         
         mean_dice = sum(dices.values()) / self.num_classes
-        mean_hd95 = sum(hds.values()) / self.num_classes
-        mean_iou = sum(ious.values()) / self.num_classes
+        # mean_hd95 = sum(hds.values()) / self.num_classes
+        # mean_iou = sum(ious.values()) / self.num_classes
         
-        # print(f"mean_dice : {mean_dice:.4f}")
+        print(f"mean_dice : {mean_dice:.4f}")
         # print(f"mean_hd95 : {mean_hd95:.4f}")
         # print(f"mean_iou : {mean_iou:.4f}")
         
-        if self.use_wandb:
-            self.log_plot(vis_data, mean_dice, mean_hd95, mean_iou, dices, filename)
-            self.log("mean_dice", mean_dice)
-            self.log("mean_hd95", mean_hd95)
-            self.log("mean_iou", mean_iou)
+        # if self.use_wandb:
+        #     self.log_plot(vis_data, mean_dice, mean_hd95, mean_iou, dices, filename)
+        #     self.log("mean_dice", mean_dice)
+        #     self.log("mean_hd95", mean_hd95)
+        #     self.log("mean_iou", mean_iou)
         
       
 

@@ -2,7 +2,6 @@ import os
 import wandb
 from tqdm import tqdm
 import numpy as np
-from medpy.metric.binary import dc, hd95
 
 import torch 
 from torch.nn.parallel import DataParallel
@@ -28,6 +27,7 @@ class Trainer(Engine):
         batch_size=10, 
         image_size=256,
         spatial_size=96,
+        lr=1e-4,
         classes=None,
         val_freq=1, 
         save_freq=5,
@@ -66,6 +66,7 @@ class Trainer(Engine):
             mode="train",
         )
         self.max_epochs = max_epochs
+        self.lr = lr
         self.batch_size = batch_size
         self.val_freq = val_freq
         self.save_freq = save_freq
@@ -86,10 +87,10 @@ class Trainer(Engine):
         
         self.set_dataloader()        
         self.model = self.load_model()
-        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=1e-4, weight_decay=1e-3)
-        # self.scheduler = LinearWarmupCosineAnnealingLR(self.optimizer,
-        #                                                warmup_epochs=10,
-        #                                                max_epochs=max_epochs)
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=lr, weight_decay=1e-3)
+        self.scheduler = LinearWarmupCosineAnnealingLR(self.optimizer,
+                                                       warmup_epochs=10,
+                                                       max_epochs=max_epochs)
         
         if model_path is not None:
             self.load_checkpoint(model_path)
@@ -139,7 +140,7 @@ class Trainer(Engine):
                                           remove_bg=self.remove_bg,
                                           use_cache=self.use_cache)
         self.dataloader = {"train": DataLoader(train_ds, batch_size=self.batch_size, shuffle=True),
-                           "val": DataLoader(val_ds, batch_size=1, shuffle=False)}
+                           "val": DataLoader(val_ds, batch_size=self.batch_size, shuffle=False)}
         
     def train(self):
         set_determinism(1234 + self.local_rank)
@@ -166,29 +167,10 @@ class Trainer(Engine):
                         }
 
                         with torch.no_grad():
-                            val_out = self.validation_step(batch)
-                            assert val_out is not None 
+                            dices = self.validation_step(batch)
+                            assert dices is not None 
 
-                        val_outputs.append(val_out)
-                    val_outputs = torch.tensor(val_outputs)
-
-                    num_val = len(val_outputs[0])
-                    length = [0.0 for _ in range(num_val)]
-                    v_sum = [0.0 for _ in range(num_val)]
-
-                    for v in val_outputs:
-                        for i in range(num_val):
-                            if not torch.isnan(v[i]):
-                                v_sum[i] += v[i]
-                                length[i] += 1
-
-                    for i in range(num_val):
-                        if length[i] == 0:
-                            v_sum[i] = 0
-                        else :
-                            v_sum[i] = v_sum[i] / length[i]
-
-                    self.validation_end(mean_val_outputs=v_sum, epoch=epoch)
+                    self.validation_end(dices, epoch)
                 
                 self.model.train()
 
@@ -226,10 +208,9 @@ class Trainer(Engine):
                     t.set_postfix(loss=loss.item(), lr=lr)
                 t.update(1)
                 
-            # self.scheduler.step()
+            self.scheduler.step()
             
             self.loss = running_loss / len(self.dataloader["train"])
-            # self.log("loss", running_loss / len(self.dataloader["train"]))
             self.log("loss", self.loss, step=epoch)
                     
         if (epoch + 1) % self.save_freq == 0:
@@ -257,34 +238,33 @@ class Trainer(Engine):
     
     def validation_step(self, batch):
         _, output, target = self.infer(batch)
-        output = output.cpu().numpy()
-        target = target.cpu().numpy()
         
-        dices = []
-        hd = []
-        for i in range(self.num_classes):
-            pred_c = output[:, i]
-            target_c = target[:, i]
-
-            dices.append(dc(pred_c, target_c))
-            hd.append(hd95(pred_c, target_c))
-        
+        # for i in range(self.num_classes):
+        #     pred = output[:, i]
+        #     gt = target[:, i]
+            
+        #     if pred.ndim == 4:
+        #         pred = pred[:, i].unsqueeze(0)
+        #         gt = gt[:, i].unsqueeze(0)
+                
+        #     dices.append(self.dice_metric(pred, gt)[0, 1])
+        dices = self.dice_metric(output, target)
         return dices
     
-    def validation_end(self, mean_val_outputs, epoch):
-        dices = mean_val_outputs
+    def validation_end(self, dices, epoch):
         mean_dice = sum(dices) / len(dices)
 
         if mean_dice > self.best_mean_dice:
             self.best_mean_dice = mean_dice
-            self.save_model(model=self.model,
-                            optimizer=self.optimizer,
-                            # self.scheduler, 
-                            epoch=self.epoch,
-                            save_path=os.path.join(self.weights_path, f"best_{mean_dice:.4f}.pt"))
+            if mean_dice > 0.5:
+                self.save_model(model=self.model,
+                                optimizer=self.optimizer,
+                                # self.scheduler, 
+                                epoch=self.epoch,
+                                save_path=os.path.join(self.weights_path, f"best_{mean_dice:.4f}.pt"))
 
-        print(f"mean_dice : {mean_dice}")
-        self.log("mean_dice", mean_dice, epoch)
+        print(f"mean_dice : {mean_dice:.4f}")
+        self.log("mean_dice", mean_dice.item(), epoch)
 
 if __name__ == "__main__":
     args = parse_args()

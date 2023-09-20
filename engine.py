@@ -1,4 +1,4 @@
-from typing import Sequence
+from typing import Sequence, Tuple
 
 import os
 import wandb
@@ -11,6 +11,7 @@ from torchvision import transforms
 
 from monai.data import DataLoader
 from monai.inferers import SlidingWindowInferer
+from monai.metrics import DiceMetric, DiceHelper
 
 from dataset.base_dataset import BaseDataset
 from models.model_type import ModelType
@@ -73,6 +74,11 @@ class Engine:
         self.scaler = torch.cuda.amp.GradScaler()
         self.tensor2pil = transforms.ToPILImage()
         self.criterion = Loss(losses, self.num_classes, self.loss_combine, self.one_hot)
+        self.dice_metric = DiceHelper(include_background=False, 
+                                      reduction="mean_batch", 
+                                      get_not_nans=False,
+                                      softmax=True,
+                                      num_classes=self.num_classes)
         self.window_infer = SlidingWindowInferer(roi_size=[spatial_size, width, height],
                                                  sw_batch_size=1,
                                                  overlap=0.6)
@@ -144,21 +150,19 @@ class Engine:
 
     def convert_labels(self, labels: torch.Tensor):
         if self.one_hot:
-            labels_new = []
+            new_labels = []
             if self.remove_bg:
                 for i in range(1, self.num_classes+1):
-                    labels_new.append(labels == i)
+                    new_labels.append(labels == i)
             else:
                 for i in range(self.num_classes):
-                    labels_new.append(labels == i)
+                    new_labels.append(labels == i)
             
-            labels_new = torch.cat(labels_new, dim=1)
-            return labels_new 
-        
+            return torch.cat(new_labels, dim=1) 
         else:
             return labels
     
-    def infer(self, batch):
+    def infer(self, batch) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         image, label = self.get_input(batch)    
         
         if self.model_type == ModelType.Diffusion:

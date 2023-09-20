@@ -8,9 +8,11 @@ from prettytable import PrettyTable
 from collections import OrderedDict
 
 from monai import transforms
+from monai.data import load_decathlon_datalist
 
 from dataset.amos_dataset import AMOSDataset
 from dataset.msd_dataset import MSDDataset
+from dataset.btcv_dataset import BTCVDataset
 from models.model_hub import ModelHub
 from models.model_type import ModelType
 
@@ -30,6 +32,8 @@ def get_data_path(name: str = "amos"):
         return "/home/song99/ws/datasets/AMOS"
     elif name == "msd":
         return "/home/song99/ws/datasets/MSD"
+    elif name == "btcv":
+        return "/home/song99/ws/datasets/BTCV"
 
 def get_class_names(classes: Dict[int, str], remove_bg: bool =False, bg_index: int = 0):
      with open(classes, "r") as f:
@@ -42,7 +46,7 @@ def get_dataloader(
     data_name: str, 
     image_size: int = 256, 
     spatial_size: int = 96, 
-    num_samples: int = 1, 
+    num_samples: int = 4, 
     mode: str = "train", 
     remove_bg: bool = False,
     use_cache: bool = True,
@@ -56,11 +60,11 @@ def get_dataloader(
             transforms.CropForegroundd(
                 keys=["image", "label"], source_key="image"
             ),
-            transforms.RandScaleCropd(
-                keys=["image", "label"], 
-                roi_scale=[0.75, 0.85, 0.95],
-                random_size=False
-            ),
+            # transforms.RandScaleCropd(
+            #     keys=["image", "label"], 
+            #     roi_scale=[0.75, 0.85, 1.0],
+            #     random_size=False
+            # ),
             transforms.Resized(
                 keys=["image", "label"],
                 spatial_size=(spatial_size, image_size, image_size),
@@ -76,11 +80,11 @@ def get_dataloader(
                 image_threshold=0,
             ),
             
-            # transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=0),
+            transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=0),
             transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=1),
             transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=2),
 
-            # transforms.RandRotate90d(keys=["image", "label"], prob=0.2, max_k=3),
+            transforms.RandRotate90d(keys=["image", "label"], prob=0.2, max_k=3),
             transforms.RandScaleIntensityd(keys="image", factors=0.1, prob=0.1),
             transforms.RandShiftIntensityd(keys="image", offsets=0.1, prob=0.1),
             transforms.ToTensord(keys=["image", "label"]),
@@ -91,10 +95,6 @@ def get_dataloader(
         [   
             transforms.ScaleIntensityRanged(
                 keys=["image"], a_min=-175, a_max=250.0, b_min=0, b_max=1.0, clip=True
-            ),
-            transforms.Resized(
-                keys=["image", "label"],
-                spatial_size=(spatial_size, image_size, image_size),
             ),
             transforms.CropForegroundd(keys=["image", "label"], source_key="image"),
             transforms.ToTensord(keys=["image", "label"]),
@@ -134,6 +134,8 @@ def get_dataloader(
         Dataset = AMOSDataset
     elif data_name == "msd":
         Dataset = MSDDataset
+    elif data_name == "btcv":
+        Dataset = BTCVDataset
     
     dataset = {}
     
@@ -146,7 +148,7 @@ def get_dataloader(
             data_path=data_path, 
             mode=p,
             remove_bg=remove_bg,
-            use_cache=use_cache and (p == "train"),
+            use_cache=use_cache and (p != "test"),
         )
 
     if mode == "train":

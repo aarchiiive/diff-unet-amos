@@ -77,9 +77,9 @@ class BaseDataset(Dataset):
             label = label.unsqueeze(0)
             raw_label = raw_label.unsqueeze(0)
             
-            if self.resize:
-                image = self.resize(image)
-                label = self.resize(label)
+            # if self.resize:
+            #     image = self.resize(image)
+            #     label = self.resize(label)
 
             self.cache[data_path[0]] = {
                 "image": image,
