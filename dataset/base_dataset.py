@@ -19,7 +19,7 @@ class BaseDataset(Dataset):
                  transform: transforms = None, 
                  data_path: Optional[str] = None, 
                  mode: Optional[str] = "train",
-                 remove_bg: Optional[bool] = True,
+                 include_background: Optional[bool] = True,
                  use_cache: Optional[bool] = True) -> None:
         super().__init__()
         
@@ -30,7 +30,7 @@ class BaseDataset(Dataset):
         self.padding = padding
         self.data_path = data_path
         self.mode = mode
-        self.remove_bg = remove_bg
+        self.include_background = include_background
         self.use_cache = use_cache
         
         self.pad = (pad, pad)

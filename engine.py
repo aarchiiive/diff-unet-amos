@@ -33,7 +33,7 @@ class Engine:
         model_path=None,
         project_name=None,
         wandb_name=None,
-        remove_bg=False,
+        include_background=False,
         use_amp=True,
         use_cache=True,
         use_wandb=True,
@@ -44,7 +44,7 @@ class Engine:
         self.data_name = data_name
         self.image_size = image_size
         self.spatial_size = spatial_size
-        self.class_names = get_class_names(classes, remove_bg)
+        self.class_names = get_class_names(classes, include_background)
         self.num_classes = len(self.class_names)
         self.device = torch.device(device)
         self.num_workers = num_workers
@@ -53,7 +53,7 @@ class Engine:
         self.model_path = model_path
         self.project_name = project_name
         self.wandb_name = wandb_name
-        self.remove_bg = remove_bg
+        self.include_background = include_background
         self.use_amp = use_amp
         self.use_cache = use_cache
         self.use_wandb = use_wandb
@@ -73,8 +73,12 @@ class Engine:
         
         self.scaler = torch.cuda.amp.GradScaler()
         self.tensor2pil = transforms.ToPILImage()
-        self.criterion = Loss(losses, self.num_classes, self.loss_combine, self.one_hot)
-        self.dice_metric = DiceHelper(include_background=False, 
+        self.criterion = Loss(self.losses, 
+                              self.num_classes, 
+                              self.loss_combine, 
+                              self.one_hot,
+                              self.include_background)
+        self.dice_metric = DiceHelper(include_background=self.include_background, 
                                       reduction="mean_batch", 
                                       get_not_nans=False,
                                       softmax=True,
@@ -150,13 +154,12 @@ class Engine:
 
     def convert_labels(self, labels: torch.Tensor):
         if self.one_hot:
-            new_labels = []
-            if self.remove_bg:
-                for i in range(1, self.num_classes+1):
-                    new_labels.append(labels == i)
-            else:
-                for i in range(self.num_classes):
-                    new_labels.append(labels == i)
+            # if self.include_background:
+            #     new_labels = [labels == i for i in range(self.num_classes)]
+            # else:
+            #     new_labels = [labels == i for i in range(1, self.num_classes+1)]
+            
+            new_labels = [labels == i for i in range(self.num_classes)]
             
             return torch.cat(new_labels, dim=1) 
         else:

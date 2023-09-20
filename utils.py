@@ -35,10 +35,10 @@ def get_data_path(name: str = "amos"):
     elif name == "btcv":
         return "/home/song99/ws/datasets/BTCV"
 
-def get_class_names(classes: Dict[int, str], remove_bg: bool =False, bg_index: int = 0):
+def get_class_names(classes: Dict[int, str], include_background: bool =False, bg_index: int = 0):
      with open(classes, "r") as f:
         classes = OrderedDict(yaml.safe_load(f))
-        if remove_bg: del classes[0]
+        if not include_background: del classes[0]
         return classes
 
 def get_dataloader(
@@ -48,7 +48,7 @@ def get_dataloader(
     spatial_size: int = 96, 
     num_samples: int = 4, 
     mode: str = "train", 
-    remove_bg: bool = False,
+    include_background: bool = False,
     use_cache: bool = True,
 ):
     transform = {}
@@ -147,7 +147,7 @@ def get_dataloader(
             transform=transform[p], 
             data_path=data_path, 
             mode=p,
-            remove_bg=remove_bg,
+            include_background=include_background,
             use_cache=use_cache and (p != "test"),
         )
 

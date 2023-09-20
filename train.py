@@ -41,7 +41,7 @@ class Trainer(Engine):
         pretrained_path=None,
         project_name="diff-unet",
         wandb_name=None,
-        remove_bg=False,
+        include_background=False,
         use_amp=True,
         use_cache=True,
         use_wandb=True,
@@ -59,14 +59,14 @@ class Trainer(Engine):
             model_path=model_path,
             project_name=project_name,
             wandb_name=wandb_name,
-            remove_bg=remove_bg,
+            include_background=include_background,
             use_amp=use_amp,
             use_cache=use_cache,
             use_wandb=use_wandb,
             mode="train",
         )
         self.max_epochs = max_epochs
-        self.lr = lr
+        self.lr = float(lr)
         self.batch_size = batch_size
         self.val_freq = val_freq
         self.save_freq = save_freq
@@ -87,7 +87,7 @@ class Trainer(Engine):
         
         self.set_dataloader()        
         self.model = self.load_model()
-        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=lr, weight_decay=1e-3)
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=float(lr), weight_decay=1e-3)
         self.scheduler = LinearWarmupCosineAnnealingLR(self.optimizer,
                                                        warmup_epochs=10,
                                                        max_epochs=max_epochs)
@@ -137,7 +137,7 @@ class Trainer(Engine):
                                           image_size=self.image_size,
                                           spatial_size=self.spatial_size,
                                           mode="train", 
-                                          remove_bg=self.remove_bg,
+                                          include_background=self.include_background,
                                           use_cache=self.use_cache)
         self.dataloader = {"train": DataLoader(train_ds, batch_size=self.batch_size, shuffle=True),
                            "val": DataLoader(val_ds, batch_size=self.batch_size, shuffle=False)}

@@ -16,7 +16,12 @@ from monai.losses.dice import DiceLoss, DiceFocalLoss, DiceCELoss, GeneralizedDi
 from .utils import dist_map_transform
 
 class Loss:
-    def __init__(self, losses: Sequence[str], num_classes: int, loss_combine: str, one_hot: bool) -> None:
+    def __init__(self, 
+                 losses: Sequence[str], 
+                 num_classes: int, 
+                 loss_combine: str, 
+                 one_hot: bool,
+                 include_background: bool) -> None:
         self.losses = []
         self.num_classes = num_classes
         self.loss_combine = loss_combine
@@ -31,7 +36,7 @@ class Loss:
             elif l == "bce":
                 self.losses.append(BCEWithLogitsLoss())
             elif l == "dice":
-                self.losses.append(DiceLoss(sigmoid=True))
+                self.losses.append(DiceLoss(include_background, sigmoid=True))
             elif l == "boundary":
                self.losses.append(BoundaryLoss(num_classes, one_hot))
             elif l == "dice_ce":
@@ -50,7 +55,9 @@ class Loss:
                 losses.append(loss(preds, self.dist_transform(labels)))
             else:
                 losses.append(loss(preds, labels))
-                
+            
+        if len(losses) == 1: return losses[0]
+        
         if self.loss_combine == 'sum':
             return torch.stack(losses).sum()
         elif self.loss_combine == 'mean':
