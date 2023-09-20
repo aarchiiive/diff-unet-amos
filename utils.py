@@ -97,6 +97,10 @@ def get_dataloader(
                 keys=["image"], a_min=-175, a_max=250.0, b_min=0, b_max=1.0, clip=True
             ),
             transforms.CropForegroundd(keys=["image", "label"], source_key="image"),
+            transforms.Resized(
+                keys=["image", "label"],
+                spatial_size=(spatial_size, image_size, image_size),
+            ),
             transforms.ToTensord(keys=["image", "label"]),
         ]
     )

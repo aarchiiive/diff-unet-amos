@@ -59,7 +59,9 @@ class DiffUNet(nn.Module):
         self.sampler = UniformSampler(1000)
         
 
-    def forward(self, image=None, x=None, pred_type=None, step=None, embedding=None):
+    def forward(self, image: torch.Tensor = None, x: torch.Tensor = None, pred_type: str = None, step=None, embedding=None):
+        if image is not None and x is not None: assert image.device == x.device
+        
         if pred_type == "q_sample":
             noise = torch.randn_like(x).to(x.device)
             t, weight = self.sampler.sample(x.shape[0], x.device)
@@ -72,16 +74,16 @@ class DiffUNet(nn.Module):
         elif pred_type == "ddim_sample":
             embeddings = self.embed_model(image)
             sample_out = self.sample_diffusion.ddim_sample_loop(self.model, 
-                                                                (1, self.num_classes, self.spatial_size, self.width,  self.height), 
+                                                                (image.shape[0], self.num_classes, *image.shape[2:]), 
                                                                 model_kwargs={"image": image, "embeddings": embeddings})
             if self.mode == "train":
-                sample_out = sample_out["pred_xstart"].to(self.device)
+                sample_out = sample_out["pred_xstart"].to(image.device)
                 return sample_out
             elif self.mode == "test":
-                sample_return = torch.zeros((1, self.num_classes, self.spatial_size, self.width,  self.height)).to(self.device)
+                sample_return = torch.zeros_like((image.shape[0], self.num_classes, *image.shape[2:])).to(image.device)
                 all_samples = sample_out["all_samples"]
                 
                 for sample in all_samples:
-                    sample_return += sample.to(self.device)
+                    sample_return += sample.to(image.device)
 
                 return sample_return

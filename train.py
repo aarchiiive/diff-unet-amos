@@ -28,6 +28,8 @@ class Trainer(Engine):
         image_size=256,
         spatial_size=96,
         lr=1e-4,
+        scheduler=None,
+        warmup_epochs=10,
         classes=None,
         val_freq=1, 
         save_freq=5,
@@ -67,6 +69,7 @@ class Trainer(Engine):
         )
         self.max_epochs = max_epochs
         self.lr = float(lr)
+        self.scheduler = scheduler
         self.batch_size = batch_size
         self.val_freq = val_freq
         self.save_freq = save_freq
@@ -88,10 +91,11 @@ class Trainer(Engine):
         self.set_dataloader()        
         self.model = self.load_model()
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=float(lr), weight_decay=1e-3)
-        self.scheduler = LinearWarmupCosineAnnealingLR(self.optimizer,
-                                                       warmup_epochs=10,
-                                                       max_epochs=max_epochs)
-        
+        if scheduler is not None:
+            self.scheduler = LinearWarmupCosineAnnealingLR(self.optimizer,
+                                                           warmup_epochs=warmup_epochs,
+                                                           max_epochs=max_epochs)
+            
         if model_path is not None:
             self.load_checkpoint(model_path)
         elif self.pretrained:
@@ -156,8 +160,6 @@ class Trainer(Engine):
             with torch.cuda.amp.autocast(self.use_amp):
                 self.train_epoch(epoch)
                 
-                val_outputs = []
-                
                 if (epoch + 1) % self.val_freq == 0:
                     self.model.eval()
                     for batch, _ in tqdm(self.dataloader["val"], total=len(self.dataloader["val"])):
@@ -208,7 +210,7 @@ class Trainer(Engine):
                     t.set_postfix(loss=loss.item(), lr=lr)
                 t.update(1)
                 
-            self.scheduler.step()
+            if self.scheduler is not None: self.scheduler.step()
             
             self.loss = running_loss / len(self.dataloader["train"])
             self.log("loss", self.loss, step=epoch)
