@@ -118,9 +118,9 @@ class Trainer(Engine):
         
     def load_checkpoint(self, model_path):
         state_dict = torch.load(model_path)
-        self.model.load_state_dict(state_dict['model'])
-        self.optimizer.load_state_dict(state_dict['optimizer'])
-        # self.scheduler.load_state_dict(state_dict['scheduler'])
+        for k in ['model', 'optimizer', 'scheduler']:
+            if state_dict[k] is not None:
+                getattr(self, k).load_state_dict(state_dict[k])
         self.start_epoch = state_dict['epoch']
         self.global_step = state_dict['global_step']
         self.best_mean_dice = state_dict['best_mean_dice']
@@ -133,7 +133,7 @@ class Trainer(Engine):
             self.model.embed_model.load_state_dict(torch.load(pretrained_path, map_location="cpu"))
         elif self.model_type == ModelType.SwinUNETR:
             self.model.load_from(weights=torch.load(pretrained_path, map_location="cpu"))
-        print(f"Load pretrained weights... from {pretrained_path}")
+        print(f"Load pretrained weights from {pretrained_path}")
             
     def set_dataloader(self):
         train_ds, val_ds = get_dataloader(data_path=get_data_path(self.data_name),
@@ -226,8 +226,7 @@ class Trainer(Engine):
         image, label = self.get_input(batch)
         
         if self.model_type == ModelType.Diffusion:
-            x_start = label
-            x_start = (x_start) * 2 - 1
+            x_start = (label) * 2 - 1
             x_t, t, _ = self.model(x=x_start, pred_type="q_sample")
             pred = self.model(x=x_t, step=t, image=image, pred_type="denoise")
         elif self.model_type == ModelType.SwinUNETR:

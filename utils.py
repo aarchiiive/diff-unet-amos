@@ -38,7 +38,7 @@ def get_data_path(name: str = "amos"):
 def get_class_names(classes: Dict[int, str], include_background: bool =False, bg_index: int = 0):
      with open(classes, "r") as f:
         classes = OrderedDict(yaml.safe_load(f))
-        if not include_background: del classes[0]
+        # if not include_background: del classes[0]
         return classes
 
 def get_dataloader(
@@ -61,11 +61,11 @@ def get_dataloader(
                 keys=["image", "label"], source_key="image"
             ),
             transforms.Orientationd(keys=["image", "label"], axcodes="RAS"),
-            transforms.Spacingd(
-                keys=["image", "label"],
-                pixdim=(1.5, 1.5, 2.0),
-                mode=("bilinear", "nearest"),
-            ),
+            # transforms.Spacingd(
+            #     keys=["image", "label"],
+            #     pixdim=(1.5, 1.5, 2.0),
+            #     mode=("bilinear", "nearest"),
+            # ),
             # transforms.RandScaleCropd(
             #     keys=["image", "label"], 
             #     roi_scale=[0.75, 0.85, 1.0],
@@ -73,7 +73,7 @@ def get_dataloader(
             # ),
             transforms.Resized(
                 keys=["image", "label"],
-                spatial_size=(spatial_size, image_size, image_size),
+                spatial_size=(spatial_size+4, image_size+4, image_size+4),
             ),
             transforms.RandCropByPosNegLabeld(
                 keys=["image", "label"],

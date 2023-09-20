@@ -173,6 +173,8 @@ class Engine:
                 output = self.window_infer(image, self.model.module, pred_type="ddim_sample")
             else:
                 output = self.window_infer(image, self.model, pred_type="ddim_sample")
+                
+            print(output.shape)
         elif self.model_type == ModelType.SwinUNETR:
             output = self.window_infer(image, self.model)
         output = torch.sigmoid(output)

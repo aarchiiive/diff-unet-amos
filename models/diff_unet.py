@@ -21,23 +21,11 @@ class DiffUNet(nn.Module):
                  mode: str,
                  ):
         super().__init__()
-        
-        if isinstance(image_size, tuple):
-            width, height = image_size
-        elif isinstance(image_size, int):
-            width = height = image_size
-            
         self.spatial_size = spatial_size
         self.num_classes = num_classes
         self.device = torch.device(device)
         self.mode = mode
         
-        # deprecated soon
-        # if pretrained:
-        #     from layers.pretrained.basic_unet import BasicUNetEncoder
-        # else:
-        #     from layers.basic_unet import BasicUNetEncoder
-            
         self.embed_model = BasicUNetEncoder(3, 1, 2, [64, 64, 128, 256, 512, 64])
         self.model = BasicUNetDecoder(3, num_classes+1, num_classes, [64, 64, 128, 256, 512, 64], 
                                       act = ("LeakyReLU", {"negative_slope": 0.1, "inplace": False}))
@@ -72,18 +60,22 @@ class DiffUNet(nn.Module):
             return self.model(x, t=step, image=image, embeddings=embeddings)
 
         elif pred_type == "ddim_sample":
-            embeddings = self.embed_model(image)
-            sample_out = self.sample_diffusion.ddim_sample_loop(self.model, 
-                                                                (image.shape[0], self.num_classes, *image.shape[2:]), 
-                                                                model_kwargs={"image": image, "embeddings": embeddings})
-            if self.mode == "train":
-                sample_out = sample_out["pred_xstart"].to(image.device)
-                return sample_out
-            elif self.mode == "test":
-                sample_return = torch.zeros_like((image.shape[0], self.num_classes, *image.shape[2:])).to(image.device)
-                all_samples = sample_out["all_samples"]
-                
-                for sample in all_samples:
-                    sample_return += sample.to(image.device)
+            res = []
+            for i in range(len(image)):
+                batch = image[i, ...].unsqueeze(0)
+                embeddings = self.embed_model(batch)
+                sample_out = self.sample_diffusion.ddim_sample_loop(self.model, 
+                                                                    (1, self.num_classes, *image.shape[2:]), 
+                                                                    model_kwargs={"image": batch, "embeddings": embeddings})
+                if self.mode == "train":
+                    res.append(sample_out["pred_xstart"].to(image.device))
+                elif self.mode == "test":
+                    sample_return = torch.zeros_like((1, self.num_classes, *image.shape[2:])).to(image.device)
+                    all_samples = sample_out["all_samples"]
+                    
+                    for sample in all_samples:
+                        sample_return += sample.to(image.device)
 
-                return sample_return
+                    res.append(sample_return) 
+                
+            return torch.cat(res, dim=0)
