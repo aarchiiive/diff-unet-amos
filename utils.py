@@ -60,6 +60,12 @@ def get_dataloader(
             transforms.CropForegroundd(
                 keys=["image", "label"], source_key="image"
             ),
+            transforms.Orientationd(keys=["image", "label"], axcodes="RAS"),
+            transforms.Spacingd(
+                keys=["image", "label"],
+                pixdim=(1.5, 1.5, 2.0),
+                mode=("bilinear", "nearest"),
+            ),
             # transforms.RandScaleCropd(
             #     keys=["image", "label"], 
             #     roi_scale=[0.75, 0.85, 1.0],
