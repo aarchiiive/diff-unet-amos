@@ -2,9 +2,10 @@ model_name: diff_unet # swin_unetr # diff_unet  # "smooth_diff_unet"
 data_name: btcv # "msd"
 image_size: 96
 spatial_size: 96
-lr: 1e-4
-scheduler: null
-warmup_epochs: 10
+lr: 2e-4
+warmup_epochs: 1e-3
+scheduler: true
+warmup_epochs: 100
 classes: cfg/btcv/classes.yaml
 device: cuda:0
 model_path: null # logs/swin-unetr-amos/weights/epoch_3500.pt # resume 
@@ -17,8 +18,8 @@ num_workers: 2
 num_gpus: 5
 project_name: diff-unet-main
 wandb_name: null
-log_dir: diff-unet-btcv-2 # swin-unetr-btcv-with-scheduler # "diff-unet-msd"
-losses: mse,cse,dice # e.g ce,mse,dice,cse,boundary,dice_ce,dice_focal,generalized_dice
+log_dir: diff-unet-btcv-3 # swin-unetr-btcv-with-scheduler # "diff-unet-msd"
+losses: mse,bce,dice # e.g ce,mse,dice,cse,boundary,dice_ce,dice_focal,generalized_dice
 loss_combine: sum # sum / mean / log
 include_background: false
 use_wandb: true  # false

@@ -28,8 +28,9 @@ class Trainer(Engine):
         image_size=256,
         spatial_size=96,
         lr=1e-4,
+        weight_decay=1e-3,
         scheduler=None,
-        warmup_epochs=10,
+        warmup_epochs=100,
         classes=None,
         val_freq=1, 
         save_freq=5,
@@ -90,8 +91,9 @@ class Trainer(Engine):
         
         self.set_dataloader()        
         self.model = self.load_model()
-        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=float(lr), weight_decay=1e-3)
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=float(lr), weight_decay=float(weight_decay))
         if scheduler is not None:
+            print("Training with scheduler...")
             self.scheduler = LinearWarmupCosineAnnealingLR(self.optimizer,
                                                            warmup_epochs=warmup_epochs,
                                                            max_epochs=max_epochs)
@@ -156,25 +158,23 @@ class Trainer(Engine):
 
         for epoch in range(self.start_epoch, self.max_epochs):
             self.epoch = epoch 
+            self.train_epoch(epoch)
             
-            with torch.cuda.amp.autocast(self.use_amp):
-                self.train_epoch(epoch)
-                
-                if (epoch + 1) % self.val_freq == 0:
-                    self.model.eval()
-                    for batch, _ in tqdm(self.dataloader["val"], total=len(self.dataloader["val"])):
-                        batch = {
-                            x: batch[x].to(self.device)
-                            for x in batch if isinstance(batch[x], torch.Tensor)
-                        }
+            if (epoch + 1) % self.val_freq == 0:
+                self.model.eval()
+                for batch, _ in tqdm(self.dataloader["val"], total=len(self.dataloader["val"])):
+                    batch = {
+                        x: batch[x].to(self.device)
+                        for x in batch if isinstance(batch[x], torch.Tensor)
+                    }
 
-                        with torch.no_grad():
-                            dices = self.validation_step(batch)
-                            assert dices is not None 
+                    with torch.no_grad():
+                        dices = self.validation_step(batch)
+                        assert dices is not None 
 
-                    self.validation_end(dices, epoch)
-                
-                self.model.train()
+                self.validation_end(dices, epoch)
+            
+            self.model.train()
 
     def train_epoch(self, epoch):
         self.model.train()
@@ -192,9 +192,12 @@ class Trainer(Engine):
                 }
                 
                 for param in self.model.parameters(): param.grad = None
-                loss = self.training_step(batch).float()
-                running_loss += loss.item()
                 
+                with torch.cuda.amp.autocast(self.use_amp):
+                    loss = self.training_step(batch).float()
+                    
+                running_loss += loss.item()
+                    
                 if self.auto_optim:
                     if self.use_amp:
                         self.scaler.scale(loss).backward()

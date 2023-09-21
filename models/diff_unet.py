@@ -52,7 +52,7 @@ class DiffUNet(nn.Module):
         
         if pred_type == "q_sample":
             noise = torch.randn_like(x).to(x.device)
-            t, weight = self.sampler.sample(x.shape[0], x.device)
+            t, _ = self.sampler.sample(x.shape[0], x.device)
             return self.diffusion.q_sample(x, t, noise=noise), t, noise
 
         elif pred_type == "denoise":
