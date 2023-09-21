@@ -10,10 +10,10 @@ classes: cfg/btcv/classes.yaml
 device: cuda:0
 model_path: null # logs/swin-unetr-amos/weights/epoch_3500.pt # resume 
 pretrained_path: pretrained/basic_unet/encoder.pt # pretrained/swin_unetr/model_swinvit.pt
-max_epochs: 30000
+max_epochs: 3000
 val_freq: 25
 save_freq: 250
-batch_size: 20
+batch_size: 15
 num_workers: 2
 num_gpus: 5
 project_name: diff-unet-main

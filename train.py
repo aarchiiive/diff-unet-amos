@@ -177,9 +177,10 @@ class Trainer(Engine):
             self.model.train()
 
     def train_epoch(self, epoch):
+        running_loss = 0
         self.model.train()
         with tqdm(total=len(self.dataloader["train"])) as t:
-            running_loss = 0
+            if self.scheduler is not None: self.scheduler.step()
             for batch, _ in self.dataloader["train"]:
                 self.global_step += 1
                 self.optimizer.zero_grad()
@@ -197,7 +198,7 @@ class Trainer(Engine):
                     loss = self.training_step(batch).float()
                     
                 running_loss += loss.item()
-                    
+                
                 if self.auto_optim:
                     if self.use_amp:
                         self.scaler.scale(loss).backward()
@@ -209,11 +210,9 @@ class Trainer(Engine):
                         self.optimizer.step()
                     
                     lr = self.optimizer.state_dict()['param_groups'][0]['lr']
-
                     t.set_postfix(loss=loss.item(), lr=lr)
+
                 t.update(1)
-                
-            if self.scheduler is not None: self.scheduler.step()
             
             self.loss = running_loss / len(self.dataloader["train"])
             self.log("loss", self.loss, step=epoch)

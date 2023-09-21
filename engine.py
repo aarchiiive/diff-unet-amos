@@ -78,7 +78,7 @@ class Engine:
                               self.loss_combine, 
                               self.one_hot,
                               self.include_background)
-        self.dice_metric = DiceHelper(include_background=self.include_background, 
+        self.dice_metric = DiceHelper(include_background=True, # self.include_background, 
                                       reduction="mean_batch", 
                                       get_not_nans=False,
                                       softmax=True,
@@ -154,12 +154,12 @@ class Engine:
 
     def convert_labels(self, labels: torch.Tensor):
         if self.one_hot:
-            # if self.include_background:
-            #     new_labels = [labels == i for i in range(self.num_classes)]
-            # else:
-            #     new_labels = [labels == i for i in range(1, self.num_classes+1)]
+            if self.include_background:
+                new_labels = [labels == i for i in range(self.num_classes)]
+            else:
+                new_labels = [labels == i for i in range(1, self.num_classes+1)]
             
-            new_labels = [labels == i for i in range(self.num_classes)]
+            # new_labels = [labels == i for i in range(self.num_classes)]
             
             return torch.cat(new_labels, dim=1) 
         else:
