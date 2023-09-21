@@ -51,16 +51,28 @@ class DiffUNet(nn.Module):
         if image is not None and x is not None: assert image.device == x.device
         
         if pred_type == "q_sample":
-            noise = torch.randn_like(x).to(x.device)
-            t, _ = self.sampler.sample(x.shape[0], x.device)
-            return self.diffusion.q_sample(x, t, noise=noise), t, noise
+            _sample, _t, _noise = [], [], []
+            for i in range(len(x)):
+                batch = x[i, ...].unsqueeze(0)
+                noise = torch.randn_like(batch).to(x.device)
+                t, _ = self.sampler.sample(batch.shape[0], batch.device)
+                _sample.append(self.diffusion.q_sample(batch, t, noise))
+                _noise.append(noise)
+                _t.append(t.unsqueeze(0))
+
+            return torch.cat(_sample, dim=0), torch.cat(_t, dim=0), torch.cat(_noise, dim=0)
 
         elif pred_type == "denoise":
-            embeddings = self.embed_model(image)
-            return self.model(x, t=step, image=image, embeddings=embeddings)
-
-        elif pred_type == "ddim_sample":
+            assert image.size(0) == x.size(0) == step.size(0)
             res = []
+            for i in range(len(image)):
+                batch = image[i, ...].unsqueeze(0)
+                embeddings = self.embed_model(batch)
+                res.append(self.model(x[i, ...].unsqueeze(0), t=step[i, ...], embeddings=embeddings, image=batch))
+            return torch.cat(res, dim=0)
+            
+        elif pred_type == "ddim_sample":
+            _sample = []
             for i in range(len(image)):
                 batch = image[i, ...].unsqueeze(0)
                 embeddings = self.embed_model(batch)
@@ -68,7 +80,7 @@ class DiffUNet(nn.Module):
                                                                     (1, self.num_classes, *image.shape[2:]), 
                                                                     model_kwargs={"image": batch, "embeddings": embeddings})
                 if self.mode == "train":
-                    res.append(sample_out["pred_xstart"].to(image.device))
+                    _sample.append(sample_out["pred_xstart"].to(image.device))
                 elif self.mode == "test":
                     sample_return = torch.zeros_like((1, self.num_classes, *image.shape[2:])).to(image.device)
                     all_samples = sample_out["all_samples"]
@@ -76,6 +88,6 @@ class DiffUNet(nn.Module):
                     for sample in all_samples:
                         sample_return += sample.to(image.device)
 
-                    res.append(sample_return) 
+                    _sample.append(sample_return) 
                 
-            return torch.cat(res, dim=0)
+            return torch.cat(_sample, dim=0)
