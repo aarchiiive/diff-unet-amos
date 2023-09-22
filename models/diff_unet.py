@@ -17,6 +17,7 @@ class DiffUNet(nn.Module):
                  image_size: Union[int, Tuple[int, int]],
                  spatial_size: int,
                  num_classes: int,
+                 timesteps: int,
                  device: torch.device,
                  mode: str,
                  ):
@@ -26,25 +27,27 @@ class DiffUNet(nn.Module):
         self.device = torch.device(device)
         self.mode = mode
         
+        timesteps = 1000
+        
         self.embed_model = BasicUNetEncoder(3, 1, 2, [64, 64, 128, 256, 512, 64])
         self.model = BasicUNetDecoder(3, num_classes+1, num_classes, [64, 64, 128, 256, 512, 64], 
                                       act = ("LeakyReLU", {"negative_slope": 0.1, "inplace": False}))
 
         betas = get_named_beta_schedule("linear", 1000)
-        self.diffusion = SpacedDiffusion(use_timesteps=space_timesteps(1000, [1000]),
+        self.diffusion = SpacedDiffusion(use_timesteps=space_timesteps(timesteps, [timesteps]),
                                          betas=betas,
                                          model_mean_type=ModelMeanType.START_X,
                                          model_var_type=ModelVarType.FIXED_LARGE,
                                          loss_type=LossType.MSE,
                                          )
 
-        self.sample_diffusion = SpacedDiffusion(use_timesteps=space_timesteps(1000, [10]),
+        self.sample_diffusion = SpacedDiffusion(use_timesteps=space_timesteps(timesteps, [10]),
                                                 betas=betas,
                                                 model_mean_type=ModelMeanType.START_X,
                                                 model_var_type=ModelVarType.FIXED_LARGE,
                                                 loss_type=LossType.MSE,
                                                 )
-        self.sampler = UniformSampler(1000)
+        self.sampler = UniformSampler(timesteps)
         
 
     def forward(self, image: torch.Tensor = None, x: torch.Tensor = None, pred_type: str = None, step=None, embedding=None):
@@ -56,10 +59,11 @@ class DiffUNet(nn.Module):
                 batch = x[i, ...].unsqueeze(0)
                 noise = torch.randn_like(batch).to(x.device)
                 t, _ = self.sampler.sample(batch.shape[0], batch.device)
-                _sample.append(self.diffusion.q_sample(batch, t, noise))
+                sample = self.diffusion.q_sample(batch, t, noise)
+                _sample.append(sample)
                 _noise.append(noise)
                 _t.append(t.unsqueeze(0))
-
+                
             return torch.cat(_sample, dim=0), torch.cat(_t, dim=0), torch.cat(_noise, dim=0)
 
         elif pred_type == "denoise":
@@ -67,9 +71,21 @@ class DiffUNet(nn.Module):
             res = []
             for i in range(len(image)):
                 batch = image[i, ...].unsqueeze(0)
+                x_batch = x[i, ...].unsqueeze(0)
                 embeddings = self.embed_model(batch)
-                res.append(self.model(x[i, ...].unsqueeze(0), t=step[i, ...], embeddings=embeddings, image=batch))
+                res.append(self.model(x_batch, t=step[i, ...], embeddings=embeddings, image=batch))
+                
             return torch.cat(res, dim=0)
+        
+        # if pred_type == "q_sample":
+        #     noise = torch.randn_like(x).to(x.device)
+        #     t, _ = self.sampler.sample(x.shape[0], x.device)
+        #     sample = self.diffusion.q_sample(x, t, noise=noise)
+        #     return sample, t, noise
+
+        # elif pred_type == "denoise":
+        #     embeddings = self.embed_model(image)
+        #     return self.model(x, t=step, image=image, embeddings=embeddings)
             
         elif pred_type == "ddim_sample":
             _sample = []
@@ -84,10 +100,8 @@ class DiffUNet(nn.Module):
                 elif self.mode == "test":
                     sample_return = torch.zeros_like((1, self.num_classes, *image.shape[2:])).to(image.device)
                     all_samples = sample_out["all_samples"]
+                    for sample in all_samples: sample_return += sample.to(image.device)
                     
-                    for sample in all_samples:
-                        sample_return += sample.to(image.device)
-
                     _sample.append(sample_return) 
                 
             return torch.cat(_sample, dim=0)

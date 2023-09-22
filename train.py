@@ -1,6 +1,8 @@
 import os
 import wandb
+import warnings
 from tqdm import tqdm
+
 import numpy as np
 
 import torch 
@@ -16,7 +18,8 @@ from models.model_type import ModelType
 from utils import parse_args, get_data_path, get_dataloader
 
 set_determinism(123)
-
+warnings.filterwarnings("ignore")
+        
         
 class Trainer(Engine):
     def __init__(
@@ -31,6 +34,7 @@ class Trainer(Engine):
         weight_decay=1e-3,
         scheduler=None,
         warmup_epochs=100,
+        timesteps=1000,
         classes=None,
         val_freq=1, 
         save_freq=5,
@@ -54,6 +58,7 @@ class Trainer(Engine):
             data_name=data_name,
             image_size=image_size,
             spatial_size=spatial_size,
+            timesteps=timesteps,
             classes=classes,
             device=device,
             num_workers=num_workers,
@@ -180,7 +185,6 @@ class Trainer(Engine):
         running_loss = 0
         self.model.train()
         with tqdm(total=len(self.dataloader["train"])) as t:
-            if self.scheduler is not None: self.scheduler.step()
             for batch, _ in self.dataloader["train"]:
                 self.global_step += 1
                 self.optimizer.zero_grad()
@@ -214,6 +218,7 @@ class Trainer(Engine):
 
                 t.update(1)
             
+            if self.scheduler is not None: self.scheduler.step()
             self.loss = running_loss / len(self.dataloader["train"])
             self.log("loss", self.loss, step=epoch)
                     
@@ -241,16 +246,6 @@ class Trainer(Engine):
     
     def validation_step(self, batch):
         _, output, target = self.infer(batch)
-        
-        # for i in range(self.num_classes):
-        #     pred = output[:, i]
-        #     gt = target[:, i]
-            
-        #     if pred.ndim == 4:
-        #         pred = pred[:, i].unsqueeze(0)
-        #         gt = gt[:, i].unsqueeze(0)
-                
-        #     dices.append(self.dice_metric(pred, gt)[0, 1])
         dices = self.dice_metric(output, target)
         return dices
     

@@ -25,6 +25,7 @@ class Engine:
         data_name="amos",
         image_size=256,
         spatial_size=96,
+        timesteps=1000,
         classes=None,
         device="cpu",
         num_workers=2,
@@ -44,6 +45,7 @@ class Engine:
         self.data_name = data_name
         self.image_size = image_size
         self.spatial_size = spatial_size
+        self.timesteps = timesteps
         self.class_names = get_class_names(classes, include_background)
         self.num_classes = len(self.class_names)
         self.device = torch.device(device)
@@ -95,6 +97,7 @@ class Engine:
             model_name=self.model_name, 
             image_size=self.image_size,
             spatial_size=self.spatial_size,
+            timesteps=self.timesteps,
             num_classes=self.num_classes,
             device=self.device,
             mode=self.mode).to(self.device)
