@@ -80,7 +80,7 @@ class Engine:
                               self.loss_combine, 
                               self.one_hot,
                               self.include_background)
-        self.dice_metric = DiceHelper(include_background=True, # self.include_background, 
+        self.dice_metric = DiceHelper(include_background=self.include_background, 
                                       reduction="mean_batch", 
                                       get_not_nans=False,
                                       softmax=True,

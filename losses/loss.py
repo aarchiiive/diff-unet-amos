@@ -36,7 +36,7 @@ class Loss:
             elif l == "bce":
                 self.losses.append(BCEWithLogitsLoss())
             elif l == "dice":
-                self.losses.append(DiceLoss(include_background=True)) # include_background
+                self.losses.append(DiceLoss(include_background=include_background)) # include_background
             elif l == "boundary":
                self.losses.append(BoundaryLoss(num_classes, one_hot))
             elif l == "dice_ce":

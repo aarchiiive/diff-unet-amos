@@ -22,7 +22,7 @@ wandb_name: null
 log_dir: diff-unet-btcv-4 # swin-unetr-btcv-with-scheduler # "diff-unet-msd"
 losses: mse,bce,dice # e.g ce,mse,dice,cse,boundary,dice_ce,dice_focal,generalized_dice
 loss_combine: sum # sum / mean / log
-include_background: false
-use_wandb: true  # false
+include_background: true
+use_wandb: false  # false
 use_amp: true  # true
 use_cache: false  # true
