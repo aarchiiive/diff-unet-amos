@@ -26,6 +26,7 @@ class Loss:
         self.num_classes = num_classes
         self.loss_combine = loss_combine
         self.one_hot = one_hot
+        self.include_background = include_background
         self.dist_transform = dist_map_transform()
         
         for l in losses.split(','):
@@ -36,7 +37,7 @@ class Loss:
             elif l == "bce":
                 self.losses.append(BCEWithLogitsLoss())
             elif l == "dice":
-                self.losses.append(DiceLoss(include_background=include_background)) # include_background
+                self.losses.append(DiceLoss(sigmoid=True))
             elif l == "boundary":
                self.losses.append(BoundaryLoss(num_classes, one_hot))
             elif l == "dice_ce":
@@ -46,8 +47,13 @@ class Loss:
             elif l == "generalized_dice":
                self.losses.append(GeneralizedDiceLoss(sigmoid=True))
 
-    def __call__(self, preds, labels):
+        print(f"loss : {self.losses}")
+    def __call__(self, preds: torch.Tensor, labels: torch.Tensor):
         losses = []
+        if not self.include_background:
+            preds = preds[:, 1:, ...]
+            labels = labels[:, 1:, ...]
+            
         for loss in self.losses:
             if isinstance(loss, MSELoss):
                 losses.append(loss(torch.sigmoid(preds), labels))

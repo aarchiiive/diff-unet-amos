@@ -15,7 +15,7 @@ from light_training.utils.lr_scheduler import LinearWarmupCosineAnnealingLR
 
 from engine import Engine
 from models.model_type import ModelType
-from utils import parse_args, get_data_path, get_dataloader
+from utils import parse_args, get_dataloader
 
 set_determinism(123)
 warnings.filterwarnings("ignore")
@@ -26,6 +26,7 @@ class Trainer(Engine):
         self, 
         model_name="diff_unet",
         data_name="amos",
+        data_path=None,
         max_epochs=5000,
         batch_size=10, 
         image_size=256,
@@ -56,6 +57,8 @@ class Trainer(Engine):
         super().__init__(
             model_name=model_name, 
             data_name=data_name,
+            data_path=data_path,
+            batch_size=batch_size,
             image_size=image_size,
             spatial_size=spatial_size,
             timesteps=timesteps,
@@ -96,6 +99,8 @@ class Trainer(Engine):
         
         self.set_dataloader()        
         self.model = self.load_model()
+        print(f"lr : {float(lr)}")
+        print(f"weight_decay : {float(weight_decay)}")
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=float(lr), weight_decay=float(weight_decay))
         if scheduler is not None:
             print("Training with scheduler...")
@@ -143,12 +148,11 @@ class Trainer(Engine):
         print(f"Load pretrained weights from {pretrained_path}")
             
     def set_dataloader(self):
-        train_ds, val_ds = get_dataloader(data_path=get_data_path(self.data_name),
+        train_ds, val_ds = get_dataloader(data_path=self.data_path,
                                           data_name=self.data_name,
                                           image_size=self.image_size,
                                           spatial_size=self.spatial_size,
                                           mode="train", 
-                                          include_background=self.include_background,
                                           use_cache=self.use_cache)
         self.dataloader = {"train": DataLoader(train_ds, batch_size=self.batch_size, shuffle=True),
                            "val": DataLoader(val_ds, batch_size=self.batch_size, shuffle=False)}
@@ -179,8 +183,6 @@ class Trainer(Engine):
 
                 self.validation_end(dices, epoch)
             
-            self.model.train()
-
     def train_epoch(self, epoch):
         running_loss = 0
         self.model.train()
@@ -197,10 +199,8 @@ class Trainer(Engine):
                 }
                 
                 for param in self.model.parameters(): param.grad = None
-                
                 with torch.cuda.amp.autocast(self.use_amp):
                     loss = self.training_step(batch).float()
-                    
                 running_loss += loss.item()
                 
                 if self.auto_optim:
@@ -214,11 +214,12 @@ class Trainer(Engine):
                         self.optimizer.step()
                     
                     lr = self.optimizer.state_dict()['param_groups'][0]['lr']
-                    t.set_postfix(loss=loss.item(), lr=lr)
 
+                    t.set_postfix(loss=loss.item(), lr=lr)
                 t.update(1)
-            
+                
             if self.scheduler is not None: self.scheduler.step()
+            
             self.loss = running_loss / len(self.dataloader["train"])
             self.log("loss", self.loss, step=epoch)
                     
@@ -236,7 +237,7 @@ class Trainer(Engine):
             x_start = (label) * 2 - 1
             x_t, t, _ = self.model(x=x_start, pred_type="q_sample")
             pred = self.model(x=x_t, step=t, image=image, pred_type="denoise")
-        elif self.model_type == ModelType.SwinUNETR:
+        else:
             pred = self.model(image)
 
         return self.compute_loss(pred, label) 
@@ -246,8 +247,7 @@ class Trainer(Engine):
     
     def validation_step(self, batch):
         _, output, target = self.infer(batch)
-        dices = self.dice_metric(output, target)
-        return dices
+        return self.dice_metric(output, target)
     
     def validation_end(self, dices, epoch):
         mean_dice = sum(dices) / len(dices)

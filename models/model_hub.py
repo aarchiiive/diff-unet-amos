@@ -3,6 +3,7 @@ from typing import Any, Tuple
 from models.diff_unet import DiffUNet
 from models.smooth_diff_unet import SmoothDiffUNet
 from models.swin_unetr import SwinUNETR
+from models.attention_unet import AttentionUNet
 
 class ModelHub:
     def __init__(self) -> None:
@@ -18,6 +19,9 @@ class ModelHub:
                               in_channels=1,
                               out_channels=kwargs['num_classes'],
                               feature_size=48)
+        elif model_name == "attention_unet":
+            model = AttentionUNet(in_channels=1,
+                                  out_channels=kwargs['num_classes'])
         else:
             raise ValueError(f"Invalid model_type: {model_name}")
         

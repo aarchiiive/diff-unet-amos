@@ -21,11 +21,13 @@ def model_hub(model_name: str, **kwargs):
     return ModelHub().__call__(model_name, **kwargs)
 
 def get_model_type(model_name: str):
-    assert model_name in ["diff_unet", "smooth_diff_unet", "swin_unetr"]
+    assert model_name in ["diff_unet", "smooth_diff_unet", "swin_unetr", "attention_unet"]
     if model_name in ["diff_unet", "smooth_diff_unet"]:
         return ModelType.Diffusion
     elif model_name in ["swin_unetr"]:
         return ModelType.SwinUNETR
+    elif model_name in ["attention_unet"]:
+        return ModelType.AttentionUNet
 
 def get_data_path(name: str = "amos"):
     if name == "amos":
@@ -48,7 +50,6 @@ def get_dataloader(
     spatial_size: int = 96, 
     num_samples: int = 4, 
     mode: str = "train", 
-    include_background: bool = False,
     use_cache: bool = True,
 ):
     transform = {}
@@ -157,7 +158,6 @@ def get_dataloader(
             transform=transform[p], 
             data_path=data_path, 
             mode=p,
-            include_background=include_background,
             use_cache=use_cache and (p != "test"),
         )
 

@@ -1,5 +1,6 @@
-from enum import Enum
+from enum import Enum, auto
 
 class ModelType(Enum):
-    Diffusion = 0
-    SwinUNETR = 1
+    Diffusion = auto()
+    SwinUNETR = auto()
+    AttentionUNet = auto()

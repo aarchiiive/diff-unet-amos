@@ -23,6 +23,8 @@ class Engine:
         self,
         model_name="diff_unet", 
         data_name="amos",
+        data_path=None,
+        batch_size=1,
         image_size=256,
         spatial_size=96,
         timesteps=1000,
@@ -43,6 +45,8 @@ class Engine:
         self.model_name = model_name
         self.model_type = get_model_type(model_name)
         self.data_name = data_name
+        self.data_path = data_path
+        self.batch_size = batch_size
         self.image_size = image_size
         self.spatial_size = spatial_size
         self.timesteps = timesteps
@@ -86,7 +90,7 @@ class Engine:
                                       softmax=True,
                                       num_classes=self.num_classes)
         self.window_infer = SlidingWindowInferer(roi_size=[spatial_size, width, height],
-                                                 sw_batch_size=1,
+                                                 sw_batch_size=batch_size,
                                                  overlap=0.6)
         
     def load_checkpoint(self, model_path: str):
@@ -99,7 +103,6 @@ class Engine:
             spatial_size=self.spatial_size,
             timesteps=self.timesteps,
             num_classes=self.num_classes,
-            device=self.device,
             mode=self.mode).to(self.device)
     
     def save_model(
@@ -157,13 +160,7 @@ class Engine:
 
     def convert_labels(self, labels: torch.Tensor):
         if self.one_hot:
-            if self.include_background:
-                new_labels = [labels == i for i in range(self.num_classes)]
-            else:
-                new_labels = [labels == i for i in range(1, self.num_classes+1)]
-            
-            # new_labels = [labels == i for i in range(self.num_classes)]
-            
+            new_labels = [labels == i for i in range(self.num_classes)]
             return torch.cat(new_labels, dim=1) 
         else:
             return labels
@@ -176,7 +173,7 @@ class Engine:
                 output = self.window_infer(image, self.model.module, pred_type="ddim_sample")
             else:
                 output = self.window_infer(image, self.model, pred_type="ddim_sample")
-        elif self.model_type == ModelType.SwinUNETR:
+        else:
             output = self.window_infer(image, self.model)
             
         output = torch.sigmoid(output)
