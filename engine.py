@@ -160,7 +160,7 @@ class Engine:
 
     def convert_labels(self, labels: torch.Tensor):
         if self.one_hot:
-            new_labels = [labels == i for i in range(self.num_classes)]
+            new_labels = [labels == i for i in self.class_names.keys()]
             return torch.cat(new_labels, dim=1) 
         else:
             return labels

@@ -29,18 +29,18 @@ def get_model_type(model_name: str):
     elif model_name in ["attention_unet"]:
         return ModelType.AttentionUNet
 
-def get_data_path(name: str = "amos"):
-    if name == "amos":
-        return "/home/song99/ws/datasets/AMOS"
-    elif name == "msd":
-        return "/home/song99/ws/datasets/MSD"
-    elif name == "btcv":
-        return "/home/song99/ws/datasets/BTCV"
+# def get_data_path(name: str = "amos"):
+#     if name == "amos":
+#         return "/home/song99/ws/datasets/AMOS"
+#     elif name == "msd":
+#         return "/home/song99/ws/datasets/MSD"
+#     elif name == "btcv":
+#         return "/home/song99/ws/datasets/BTCV"
 
 def get_class_names(classes: Dict[int, str], include_background: bool =False, bg_index: int = 0):
      with open(classes, "r") as f:
         classes = OrderedDict(yaml.safe_load(f))
-        if not include_background: del classes[0]
+        # if not include_background: del classes[0]
         return classes
 
 def get_dataloader(
