@@ -40,7 +40,7 @@ class Trainer(Engine):
         val_freq=1, 
         save_freq=5,
         device="cpu", 
-        num_gpus=1, 
+        device_ids=[0, 1, 2, 3],
         num_workers=2,
         losses="mse,bce,dice",
         loss_combine='sum',
@@ -82,7 +82,6 @@ class Trainer(Engine):
         self.batch_size = batch_size
         self.val_freq = val_freq
         self.save_freq = save_freq
-        self.num_gpus = num_gpus
         self.num_workers = num_workers
         self.log_dir = os.path.join("logs", log_dir)
         self.pretrained = pretrained_path is not None
@@ -111,8 +110,8 @@ class Trainer(Engine):
         elif self.pretrained:
             self.load_pretrained_weights(pretrained_path)
                 
-        if self.num_gpus > 1:
-            self.model = DataParallel(self.model, device_ids=[i for i in range(num_gpus)])
+        if len(device_ids):
+            self.model = DataParallel(self.model, device_ids=list(map(int, device_ids.split(','))))
             
         if use_wandb:
             if model_path is None:
