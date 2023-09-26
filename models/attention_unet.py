@@ -201,11 +201,7 @@ class AttentionUNet(nn.Module):
         # upsampling
         d = None
         for i in range(len(self.up)):
-            print(_x[i].shape)
-            if d is None:
-                d = self.up[i](_x[i], _x[i+1])
-            else:
-                d = self.up[i](d, _x[i+1])
+            d = self.up[i](_x[i], _x[i+1]) if d is None else self.up[i](d, _x[i+1])
         
         return self.output_layer(d)
     

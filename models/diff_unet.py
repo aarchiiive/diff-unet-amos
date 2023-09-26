@@ -50,13 +50,28 @@ class DiffUNet(nn.Module):
         if image is not None and x is not None: assert image.device == x.device
         
         if pred_type == "q_sample":
-            noise = torch.randn_like(x).to(x.device)
-            t, weight = self.sampler.sample(x.shape[0], x.device)
-            return self.diffusion.q_sample(x, t, noise=noise), t, noise
+            _sample, _t, _noise = [], [], []
+            for i in range(len(x)):
+                batch = x[i, ...].unsqueeze(0)
+                noise = torch.randn_like(batch).to(x.device)
+                t, _ = self.sampler.sample(batch.shape[0], batch.device)
+                sample = self.diffusion.q_sample(batch, t, noise)
+                _sample.append(sample)
+                _noise.append(noise)
+                _t.append(t.unsqueeze(0))
+                
+            return torch.cat(_sample, dim=0), torch.cat(_t, dim=0), torch.cat(_noise, dim=0)
 
         elif pred_type == "denoise":
-            embeddings = self.embed_model(image)
-            return self.model(x, t=step, image=image, embeddings=embeddings)
+            assert image.size(0) == x.size(0) == step.size(0)
+            res = []
+            for i in range(len(image)):
+                batch = image[i, ...].unsqueeze(0)
+                x_batch = x[i, ...].unsqueeze(0)
+                embeddings = self.embed_model(batch)
+                res.append(self.model(x_batch, t=step[i, ...], embeddings=embeddings, image=batch))
+                
+            return torch.cat(res, dim=0)
 
         elif pred_type == "ddim_sample":
             res = []

@@ -37,10 +37,10 @@ def get_model_type(model_name: str):
 #     elif name == "btcv":
 #         return "/home/song99/ws/datasets/BTCV"
 
-def get_class_names(classes: Dict[int, str], include_background: bool =False, bg_index: int = 0):
+def get_class_names(classes: Dict[int, str], include_background: bool = False, bg_index: int = 0):
      with open(classes, "r") as f:
         classes = OrderedDict(yaml.safe_load(f))
-        # if not include_background: del classes[0]
+        if not include_background: del classes[0]
         return classes
 
 def get_dataloader(
@@ -61,20 +61,20 @@ def get_dataloader(
             transforms.CropForegroundd(
                 keys=["image", "label"], source_key="image"
             ),
-            transforms.Orientationd(keys=["image", "label"], axcodes="RAS"),
-            # transforms.Spacingd(
-            #     keys=["image", "label"],
-            #     pixdim=(1.5, 1.5, 2.0),
-            #     mode=("bilinear", "nearest"),
-            # ),
-            # transforms.RandScaleCropd(
-            #     keys=["image", "label"], 
-            #     roi_scale=[0.75, 0.85, 1.0],
-            #     random_size=False
-            # ),
+            # transforms.Orientationd(keys=["image", "label"], axcodes="RAS"),
+            transforms.Spacingd(
+                keys=["image", "label"],
+                pixdim=(1.5, 1.5, 2.0),
+                mode=("bilinear", "nearest"),
+            ),
+            transforms.RandScaleCropd(
+                keys=["image", "label"], 
+                roi_scale=[0.75, 0.85, 1.0],
+                random_size=False
+            ),
             transforms.Resized(
                 keys=["image", "label"],
-                spatial_size=(spatial_size+4, image_size+4, image_size+4),
+                spatial_size=(int(spatial_size*1.1), int(image_size*1.1), int(image_size*1.1)),
             ),
             transforms.RandCropByPosNegLabeld(
                 keys=["image", "label"],

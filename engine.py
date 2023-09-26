@@ -69,6 +69,8 @@ class Engine:
         self.best_mean_dice = 0
         self.loss = 0
         
+        print(f"number of classes : {self.num_classes}")
+        
         if isinstance(image_size, tuple):
             width, height = image_size
         elif isinstance(image_size, int):
@@ -84,7 +86,7 @@ class Engine:
                               self.loss_combine, 
                               self.one_hot,
                               self.include_background)
-        self.dice_metric = DiceHelper(include_background=self.include_background, 
+        self.dice_metric = DiceHelper(include_background=True, # self.include_background, 
                                       reduction="mean_batch", 
                                       get_not_nans=False,
                                       softmax=True,
@@ -160,7 +162,7 @@ class Engine:
 
     def convert_labels(self, labels: torch.Tensor):
         if self.one_hot:
-            new_labels = [labels == i for i in self.class_names.keys()]
+            new_labels = [labels == i for i in sorted(self.class_names.keys())]
             return torch.cat(new_labels, dim=1) 
         else:
             return labels

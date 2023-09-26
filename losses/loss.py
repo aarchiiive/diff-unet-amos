@@ -48,11 +48,12 @@ class Loss:
                self.losses.append(GeneralizedDiceLoss(sigmoid=True))
 
         print(f"loss : {self.losses}")
+        
     def __call__(self, preds: torch.Tensor, labels: torch.Tensor):
         losses = []
-        if not self.include_background:
-            preds = preds[:, 1:, ...]
-            labels = labels[:, 1:, ...]
+        # if not self.include_background:
+        #     preds = preds[:, 1:, ...]
+        #     labels = labels[:, 1:, ...]
             
         for loss in self.losses:
             if isinstance(loss, MSELoss):

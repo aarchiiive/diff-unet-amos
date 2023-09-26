@@ -99,8 +99,6 @@ class Trainer(Engine):
         
         self.set_dataloader()        
         self.model = self.load_model()
-        print(f"lr : {float(lr)}")
-        print(f"weight_decay : {float(weight_decay)}")
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=float(lr), weight_decay=float(weight_decay))
         if scheduler is not None:
             print("Training with scheduler...")
@@ -159,9 +157,9 @@ class Trainer(Engine):
         
     def train(self):
         set_determinism(1234 + self.local_rank)
-        print(f"check model parameter: {next(self.model.parameters()).sum()}")
+        print(f"check model parameter: {next(self.model.parameters()).sum():.4f}")
         para = sum([np.prod(list(p.size())) for p in self.model.parameters()])
-        print(f"model parameters is {para * 4 / 1000 / 1000}M ")
+        print(f"model parameters is {para * 4 / 1000 / 1000:.2f}M ")
         
         os.makedirs(self.log_dir, exist_ok=True)
 
