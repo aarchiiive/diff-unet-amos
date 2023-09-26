@@ -69,6 +69,10 @@ class Loss:
             return torch.stack(losses).sum()
         elif self.loss_combine == 'mean':
             return torch.stack(losses).mean()
+        elif self.loss_combine == 'log':
+            return torch.log(torch.stack(losses).sum())
+        else:
+            raise NotImplementedError("Unsupported value for loss_combine. Please choose from 'sum', 'mean', or 'log'.")
 
 # Reference : https://github.com/LIVIAETS/boundary-loss/blob/master/losses.py
 class BoundaryLoss(_Loss):

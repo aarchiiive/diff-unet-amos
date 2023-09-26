@@ -20,7 +20,7 @@ num_workers: 2
 num_gpus: 5
 project_name: diff-unet-main
 wandb_name: null
-log_dir: diff-unet-btcv-6 # swin-unetr-btcv-with-scheduler # "diff-unet-msd"
+log_dir: diff-unet-btcv-6 
 losses: mse,bce,dice # e.g ce,mse,bce,dice,boundary,dice_ce,dice_focal,generalized_dice
 loss_combine: sum # sum / mean / log
 include_background: false
