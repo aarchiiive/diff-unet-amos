@@ -20,8 +20,8 @@ num_workers: 2
 device_ids: null
 project_name: diff-unet-main
 wandb_name: null
-log_dir: diff-unet-btcv-14
-losses: dice # e.g ce,mse,bce,dice,boundary,dice_ce,dice_focal,generalized_dice,multi_neighbor,hausdorff_er
+log_dir: diff-unet-btcv-13
+losses: bce,hausdorff_er,dice # e.g ce,mse,bce,dice,boundary,dice_ce,dice_focal,generalized_dice,multi_neighbor,hausdorff_er
 loss_combine: sum # sum / mean / log
 include_background: false
 use_wandb: true  # false

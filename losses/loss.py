@@ -164,14 +164,14 @@ class HausdorffDTLoss(nn.Module):
         return loss
 
 
-class HausdorffERLoss(nn.Module):
+class HausdorffERLoss(_Loss):
     """Binary Hausdorff loss based on morphological erosion"""
 
     def __init__(self, 
                  num_classes: int, 
                  alpha: float = 2.0, 
-                 erosions: int = 10,
-                 scaler: str = 'sqrt_log'):
+                 erosions: int = 5,
+                 scaler: str = 'log'):
         super(HausdorffERLoss, self).__init__()
         self.num_classes  = num_classes
         self.alpha = alpha
@@ -192,10 +192,10 @@ class HausdorffERLoss(nn.Module):
         eroted = torch.zeros_like(bound)
         self.kernel = self.kernel.to(dtype=bound.dtype, device=bound.device)
         
-        for batch in range(len(bound)):
+        for i in range(len(bound)):
             for k in range(self.erosions):
                 # Note : conv2d does not work entirely same with scipy.ndimage.convolve
-                dilation = F.conv3d(bound[batch].unsqueeze(0), self.kernel, padding=4)
+                dilation = F.conv3d(bound[i].unsqueeze(0), self.kernel, padding=4)
                 
                 erosion = dilation - 0.5
                 erosion[erosion < 0] = 0
@@ -204,8 +204,11 @@ class HausdorffERLoss(nn.Module):
                 if ptp != 0:
                     erosion = (erosion - erosion.min()) / ptp
 
-                bound[batch] = erosion.squeeze(0)
-                eroted[batch] += erosion.squeeze(0) * (k + 1) ** self.alpha
+                eroted[i] += erosion.squeeze(0) * (k + 1) ** self.alpha
+    
+        nan_indices = torch.isnan(eroted)
+        if nan_indices.any():
+            eroted[nan_indices] = 0
 
         return eroted
 
@@ -243,7 +246,7 @@ class MultiNeighborLoss(_Loss):
         
         delta = []
         for i in range(probs.size(0)):
-            p_angles, l_angles = self.compute_angles(probs[i, ...]), self.compute_angles(labels[i, ...])
+            p_angles, l_angles = self.compute_angles(torch.sigmoid(probs[i, ...])), self.compute_angles(labels[i, ...])
             delta.append(torch.square(p_angles - l_angles))
                     
         if self.reduction == "mean":
@@ -254,9 +257,11 @@ class MultiNeighborLoss(_Loss):
         angles = torch.zeros(self.max_angles).to(t.device)
         centroids = [None for _ in range(self.num_classes)]
         
+        t = torch.argmax(t, dim=0)
+        
         for i in range(self.num_classes):
             if i == 0: continue # do not consider backgrounds
-            _, z, y, x = torch.where(t == i)
+            z, y, x = torch.where(t == i)
             centroids[i] = torch.stack(self.compute_centroids(x, y, z))
         
         for i in range(1, self.num_classes):
