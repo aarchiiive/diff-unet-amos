@@ -223,7 +223,7 @@ class Trainer(Engine):
         if (epoch + 1) % self.save_freq == 0:
             self.save_model(model=self.model,
                             optimizer=self.optimizer,
-                            # self.scheduler, 
+                            scheduler=self.scheduler,
                             epoch=self.epoch,
                             save_path=os.path.join(self.weights_path, f"epoch_{epoch+1}.pt"))
 
@@ -254,7 +254,7 @@ class Trainer(Engine):
             if mean_dice > 0.5:
                 self.save_model(model=self.model,
                                 optimizer=self.optimizer,
-                                # self.scheduler, 
+                                scheduler=self.scheduler,
                                 epoch=self.epoch,
                                 save_path=os.path.join(self.weights_path, f"best_{mean_dice:.4f}.pt"))
 

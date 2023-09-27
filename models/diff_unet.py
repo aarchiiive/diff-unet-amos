@@ -46,7 +46,12 @@ class DiffUNet(nn.Module):
         self.sampler = UniformSampler(timesteps)
         
 
-    def forward(self, image: torch.Tensor = None, x: torch.Tensor = None, pred_type: str = None, step=None, embedding=None):
+    def forward(self, 
+                image: torch.Tensor = None, 
+                x: torch.Tensor = None, 
+                pred_type: str = None, 
+                step=None, 
+                embedding=None):
         if image is not None and x is not None: assert image.device == x.device
         
         if pred_type == "q_sample":

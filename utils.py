@@ -62,16 +62,16 @@ def get_dataloader(
                 keys=["image", "label"], source_key="image"
             ),
             # transforms.Orientationd(keys=["image", "label"], axcodes="RAS"),
-            transforms.Spacingd(
-                keys=["image", "label"],
-                pixdim=(1.5, 1.5, 2.0),
-                mode=("bilinear", "nearest"),
-            ),
-            transforms.RandScaleCropd(
-                keys=["image", "label"], 
-                roi_scale=[0.75, 0.85, 1.0],
-                random_size=False
-            ),
+            # transforms.Spacingd(
+            #     keys=["image", "label"],
+            #     pixdim=(1.5, 1.5, 2.0),
+            #     mode=("bilinear", "nearest"),
+            # ),
+            # transforms.RandScaleCropd(
+            #     keys=["image", "label"], 
+            #     roi_scale=[0.75, 0.85, 1.0],
+            #     random_size=False
+            # ),
             transforms.Resized(
                 keys=["image", "label"],
                 spatial_size=(int(spatial_size*1.1), int(image_size*1.1), int(image_size*1.1)),
@@ -87,11 +87,11 @@ def get_dataloader(
                 image_threshold=0,
             ),
             
-            transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=0),
+            # transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=0),
             transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=1),
             transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=2),
 
-            transforms.RandRotate90d(keys=["image", "label"], prob=0.2, max_k=3),
+            # transforms.RandRotate90d(keys=["image", "label"], prob=0.2, max_k=3),
             transforms.RandScaleIntensityd(keys="image", factors=0.1, prob=0.1),
             transforms.RandShiftIntensityd(keys="image", offsets=0.1, prob=0.1),
             transforms.ToTensord(keys=["image", "label"]),
