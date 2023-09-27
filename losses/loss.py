@@ -187,8 +187,8 @@ class HausdorffERLoss(nn.Module):
         self.kernel = self.kernel.repeat(1, self.num_classes, *self.kernel.shape[2:])
 
     # @torch.no_grad()
-    def perform_erosion(self, preds: torch.Tensor, labels: torch.Tensor):
-        bound = ((preds - labels) ** 2).float()
+    def perform_erosion(self, probs: torch.Tensor, labels: torch.Tensor):
+        bound = ((probs - labels) ** 2).float()
         eroted = torch.zeros_like(bound)
         self.kernel = self.kernel.to(dtype=bound.dtype, device=bound.device)
         
@@ -209,10 +209,10 @@ class HausdorffERLoss(nn.Module):
 
         return eroted
 
-    def forward(self, preds: torch.Tensor, labels: torch.Tensor):
+    def forward(self, probs: torch.Tensor, labels: torch.Tensor):
         assert probs.ndim == labels.ndim == 5, "The dimensions of probs and labels should be same and 5."
 
-        eroted = self.perform_erosion(preds, labels)
+        eroted = self.perform_erosion(probs, labels)
         loss = eroted.mean()
         
         if self.scaler == "log":
