@@ -110,23 +110,27 @@ class MultiNeighborLoss(_Loss):
         self.include_background = include_background
         self.reduction = reduction
         self.max_angles = self.num_classes * (self.num_classes - 1) // 2
-        self.idx = 0
     
     def forward(self, probs: torch.Tensor, labels: torch.Tensor):
-        p_angles, l_angles = self.compute_angles(probs), self.compute_angles(labels)
-        delta = torch.square(p_angles - l_angles)
+        assert probs.ndim == labels.ndim and probs.ndim == 5, "The dimensions of tensors 'probs' and 'labels' should be 5."
+        
+        delta = torch.zeros(probs.size(0), self.max_angles).to(probs.device)  # delta를 텐서로 초기화
+        
+        for i in range(probs.size(0)):
+            p_angles, l_angles = self.compute_angles(probs[i, ...]), self.compute_angles(labels[i, ...])
+            delta[i, :] = torch.square(p_angles - l_angles)
                     
         if self.reduction == "mean":
-            return torch.mean(delta[:self.idx])
+            return torch.mean(delta)
         
     def compute_angles(self, t: torch.Tensor):
-        self.idx = 0 
+        idx = 0 
         angles = torch.zeros(self.max_angles).to(t.device)
         centroids = [None for _ in range(self.num_classes)]
         
         for i in range(self.num_classes):
             if i == 0: continue # do not consider backgrounds
-            _, _, z, y, x = torch.where(t == i)
+            _, z, y, x = torch.where(t == i)
             centroids[i] = torch.stack([torch.mean(x.float()), torch.mean(y.float()), torch.mean(z.float())])
         
         for i in range(1, self.num_classes):
@@ -140,18 +144,20 @@ class MultiNeighborLoss(_Loss):
                     if torch.isnan(angle):
                         angle = torch.randn((1, )).to(x.device)
                     
-                    angles[self.idx] = angle
-                    self.idx += 1
+                    angles[idx] = angle
+                    idx += 1
                     
         return angles
+    
+    
                     
                     
 if __name__ == "__main__":
     num_classes = 16
     device = torch.device("cuda:1")
     for _ in range(100):
-        probs = torch.randint(0, num_classes, (1, num_classes, 96, 96, 96)).to(device)
-        labels = torch.randint(0, num_classes, (1, num_classes, 96, 96, 96)).to(device)
+        probs = torch.randint(0, num_classes, (10, num_classes, 96, 96, 96)).to(device)
+        labels = torch.randint(0, num_classes, (10, num_classes, 96, 96, 96)).to(device)
         
         loss = MultiNeighborLoss(num_classes)
         
