@@ -15,12 +15,12 @@ pretrained_path: pretrained/basic_unet/encoder.pt # pretrained/swin_unetr/model_
 max_epochs: 3000
 val_freq: 25
 save_freq: 250
-batch_size: 20
+batch_size: 1
 num_workers: 2
-device_ids: 0,1,2,3,4
+device_ids: null
 project_name: diff-unet-main
 wandb_name: null
-log_dir: diff-unet-btcv-8
+log_dir: diff-unet-btcv-9
 losses: mse,dice,multi_neighbor # e.g ce,mse,bce,dice,boundary,dice_ce,dice_focal,generalized_dice,multi_neighbor
 loss_combine: sum # sum / mean / log
 include_background: false

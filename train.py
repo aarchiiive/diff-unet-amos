@@ -110,7 +110,7 @@ class Trainer(Engine):
         elif self.pretrained:
             self.load_pretrained_weights(pretrained_path)
                 
-        if len(device_ids):
+        if device_ids:
             self.model = DataParallel(self.model, device_ids=list(map(int, device_ids.split(','))))
             
         if use_wandb:
@@ -183,6 +183,8 @@ class Trainer(Engine):
     def train_epoch(self, epoch):
         running_loss = 0
         self.model.train()
+        lr = self.optimizer.state_dict()['param_groups'][0]['lr']
+        
         with tqdm(total=len(self.dataloader["train"])) as t:
             for batch, _ in self.dataloader["train"]:
                 self.global_step += 1
@@ -209,8 +211,6 @@ class Trainer(Engine):
                     else:
                         loss.backward()
                         self.optimizer.step()
-                    
-                    lr = self.optimizer.state_dict()['param_groups'][0]['lr']
 
                     t.set_postfix(loss=loss.item(), lr=lr)
                 t.update(1)
