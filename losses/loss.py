@@ -114,14 +114,13 @@ class MultiNeighborLoss(_Loss):
     def forward(self, probs: torch.Tensor, labels: torch.Tensor):
         assert probs.ndim == labels.ndim and probs.ndim == 5, "The dimensions of tensors 'probs' and 'labels' should be 5."
         
-        delta = torch.zeros(probs.size(0), self.max_angles).to(probs.device)  # delta를 텐서로 초기화
-        
+        delta = []
         for i in range(probs.size(0)):
             p_angles, l_angles = self.compute_angles(probs[i, ...]), self.compute_angles(labels[i, ...])
-            delta[i, :] = torch.square(p_angles - l_angles)
+            delta.append(torch.square(p_angles - l_angles))
                     
         if self.reduction == "mean":
-            return torch.mean(delta)
+            return torch.mean(torch.cat(delta))
         
     def compute_angles(self, t: torch.Tensor):
         idx = 0 
@@ -148,8 +147,6 @@ class MultiNeighborLoss(_Loss):
                     idx += 1
                     
         return angles
-    
-    
                     
                     
 if __name__ == "__main__":
