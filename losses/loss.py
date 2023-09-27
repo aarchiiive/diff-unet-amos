@@ -48,6 +48,8 @@ class Loss:
                self.losses.append(GeneralizedDiceLoss(sigmoid=True))
             elif name == "multi_neighbor":
                self.losses.append(MultiNeighborLoss(num_classes=num_classes, include_background=include_background))
+            elif name == "hausdorff_er":
+                self.losses.append(HausdorffERLoss(num_classes=num_classes))
 
         print(f"loss : {self.losses}")
         
@@ -76,6 +78,24 @@ class Loss:
         else:
             raise NotImplementedError("Unsupported value for loss_combine. Please choose from 'sum', 'mean', or 'log'.")
 
+
+# simple torch implementation of ofdistance_transform_edt from scipy
+def distance_transform_edt(t: torch.Tensor):
+    dist = torch.zeros_like(t, dtype=t.dtype).to(t.device)
+    for x in range(t.shape[0]):
+        for y in range(t.shape[1]):
+            if t[x, y] == 0:
+                continue
+            min_dist = float('inf')
+            for i in range(t.shape[0]):
+                for j in range(t.shape[1]):
+                    if t[i, j] == 0:
+                        d = ((x - i)**2 + (y - j)**2)**0.5
+                        if d < min_dist:
+                            min_dist = d
+            dist[x, y] = min_dist
+    return dist
+
 # Reference : https://github.com/LIVIAETS/boundary-loss/blob/master/losses.py
 class BoundaryLoss(_Loss):
     def __init__(self, num_classes: int, one_hot: bool):
@@ -103,62 +123,37 @@ class BoundaryLoss(_Loss):
 
             return torch.einsum("bkdwh,bkdwh->bkdwh", pc, dc).mean() / probs.size(0)
 
-import cv2 as cv
-import numpy as np
-
-import torch
-from torch import nn
-
-from scipy.ndimage.morphology import distance_transform_edt as edt
-from scipy.ndimage import convolve
-
-"""
-Hausdorff loss implementation based on paper:
-https://arxiv.org/pdf/1904.10030.pdf
-"""
-
+# References : https://github.com/PatRyg99/HausdorffLoss/blob/master/hausdorff_loss.py
 
 class HausdorffDTLoss(nn.Module):
     """Binary Hausdorff loss based on distance transform"""
-
-    def __init__(self, alpha=2.0, **kwargs):
+    
+    def __init__(self, alpha=2.0):
         super(HausdorffDTLoss, self).__init__()
         self.alpha = alpha
 
-    @torch.no_grad()
-    def distance_field(self, img: np.ndarray) -> np.ndarray:
-        field = np.zeros_like(img)
-
-        for batch in range(len(img)):
-            fg_mask = img[batch] > 0.5
-
+    # @torch.no_grad()
+    def distance_field(self, t: torch.Tensor) -> torch.Tensor:
+        field = torch.zeros_like(t).cuda()
+        
+        for batch in range(len(t)):
+            fg_mask = t[batch] > 0.5
+            
             if fg_mask.any():
                 bg_mask = ~fg_mask
 
-                fg_dist = edt(fg_mask)
-                bg_dist = edt(bg_mask)
+                fg_dist = distance_transform_edt(fg_mask) # Replace this
+                bg_dist = distance_transform_edt(bg_mask) # Replace this
 
                 field[batch] = fg_dist + bg_dist
-
+                
         return field
 
-    def forward(
-        self, pred: torch.Tensor, target: torch.Tensor, debug=False
-    ) -> torch.Tensor:
-        """
-        Uses one binary channel: 1 - fg, 0 - bg
-        pred: (b, 1, x, y, z) or (b, 1, x, y)
-        target: (b, 1, x, y, z) or (b, 1, x, y)
-        """
-        assert pred.dim() == 4 or pred.dim() == 5, "Only 2D and 3D supported"
-        assert (
-            pred.dim() == target.dim()
-        ), "Prediction and target need to be of same dimension"
+    def forward(self, pred: torch.Tensor, target: torch.Tensor):
+        assert pred.ndim == target.ndim, "Prediction and target need to be of same dimension"
 
-        # pred = torch.sigmoid(pred)
-
-        pred_dt = torch.from_numpy(self.distance_field(pred.cpu().numpy())).float()
-        target_dt = torch.from_numpy(self.distance_field(target.cpu().numpy())).float()
+        pred_dt = self.distance_field(pred)
+        target_dt = self.distance_field(target)
 
         pred_error = (pred - target) ** 2
         distance = pred_dt ** self.alpha + target_dt ** self.alpha
@@ -166,87 +161,66 @@ class HausdorffDTLoss(nn.Module):
         dt_field = pred_error * distance
         loss = dt_field.mean()
 
-        if debug:
-            return (
-                loss.cpu().numpy(),
-                (
-                    dt_field.cpu().numpy()[0, 0],
-                    pred_error.cpu().numpy()[0, 0],
-                    distance.cpu().numpy()[0, 0],
-                    pred_dt.cpu().numpy()[0, 0],
-                    target_dt.cpu().numpy()[0, 0],
-                ),
-            )
+        return loss
 
-        else:
-            return loss
 
-# References : https://github.com/PatRyg99/HausdorffLoss/blob/master/hausdorff_loss.py
 class HausdorffERLoss(nn.Module):
     """Binary Hausdorff loss based on morphological erosion"""
 
-    def __init__(self, alpha=2.0, erosions=10, **kwargs):
+    def __init__(self, 
+                 num_classes: int, 
+                 alpha: float = 2.0, 
+                 erosions: int = 10,
+                 scaler: str = 'sqrt_log'):
         super(HausdorffERLoss, self).__init__()
+        self.num_classes  = num_classes
         self.alpha = alpha
         self.erosions = erosions
+        self.scaler = scaler
         self.prepare_kernels()
 
     def prepare_kernels(self):
-        cross = torch.tensor([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=torch.float32) / 5.0
-        bound = torch.tensor([[0, 0, 0], [0, 1, 0], [0, 0, 0]], dtype=torch.float32)
+        cross = torch.tensor([[0, 1, 0], [1, 1, 1], [0, 1, 0]])
+        bound = torch.tensor([[0, 0, 0], [0, 1, 0], [0, 0, 0]])
 
-        self.kernel2D = cross
-        self.kernel3D = torch.stack([bound, cross, bound]) / 7.0
+        self.kernel = torch.stack([bound, cross, bound]).unsqueeze(0).unsqueeze(0) / 7.0
+        self.kernel = self.kernel.repeat(1, self.num_classes, *self.kernel.shape[2:])
 
-    @torch.no_grad()
-    def perform_erosion(self, pred, target, debug):
-        bound = (pred - target) ** 2
-
-        if bound.dim() == 5:
-            kernel = self.kernel3D
-        elif bound.dim() == 4:
-            kernel = self.kernel2D
-        else:
-            raise ValueError(f"Dimension {bound.dim()} is not supported.")
-
+    # @torch.no_grad()
+    def perform_erosion(self, preds: torch.Tensor, labels: torch.Tensor):
+        bound = ((preds - labels) ** 2).float()
         eroted = torch.zeros_like(bound)
-        erosions = []
-
+        self.kernel = self.kernel.to(dtype=bound.dtype, device=bound.device)
+        
         for batch in range(len(bound)):
-            # debug
-            erosions.append(bound[batch][0].clone())
-
             for k in range(self.erosions):
-                dilation = F.conv2d(bound[batch].unsqueeze(0), kernel.unsqueeze(0).unsqueeze(0), padding=1)
+                # Note : conv2d does not work entirely same with scipy.ndimage.convolve
+                dilation = F.conv3d(bound[batch].unsqueeze(0), self.kernel, padding=4)
                 
                 erosion = dilation - 0.5
                 erosion[erosion < 0] = 0
-
-                if erosion.ptp() != 0:
-                    erosion = (erosion - erosion.min()) / erosion.ptp()
+                ptp = torch.max(erosion) - torch.min(erosion)
+                
+                if ptp != 0:
+                    erosion = (erosion - erosion.min()) / ptp
 
                 bound[batch] = erosion.squeeze(0)
-                eroted[batch] += erosion * (k + 1) ** self.alpha
+                eroted[batch] += erosion.squeeze(0) * (k + 1) ** self.alpha
 
-                if debug:
-                    erosions.append(erosion[0].clone())
+        return eroted
 
-        if debug:
-            return eroted, erosions
-        else:
-            return eroted
+    def forward(self, preds: torch.Tensor, labels: torch.Tensor):
+        assert probs.ndim == labels.ndim == 5, "The dimensions of probs and labels should be same and 5."
 
-    def forward(self, pred, target, debug=False):
-        assert pred.dim() == 4 or pred.dim() == 5, "Only 2D and 3D supported"
-        assert pred.dim() == target.dim(), "Prediction and target need to be of same dimension"
-
-        if debug:
-            eroted, erosions = self.perform_erosion(pred, target, debug)
-            return eroted.mean(), erosions
-        else:
-            eroted = self.perform_erosion(pred, target, debug)
-            loss = eroted.mean()
-            return loss
+        eroted = self.perform_erosion(preds, labels)
+        loss = eroted.mean()
+        
+        if self.scaler == "log":
+            return torch.log(1 + loss)
+        elif self.scaler == "sqrt":
+            return torch.sqrt(loss)
+        elif self.scaler == "sqrt_log":
+            return torch.sqrt(torch.log(1 + loss))
         
         
 class MultiNeighborLoss(_Loss):
@@ -265,7 +239,7 @@ class MultiNeighborLoss(_Loss):
         if not include_background: self.num_classes += 1
     
     def forward(self, probs: torch.Tensor, labels: torch.Tensor):
-        assert probs.ndim == labels.ndim == 5, "The dimensions of tensors 'probs' and 'labels' should be 5."
+        assert probs.ndim == labels.ndim == 5, "The dimensions of probs and labels should be same and 5."
         
         delta = []
         for i in range(probs.size(0)):
@@ -310,11 +284,10 @@ class MultiNeighborLoss(_Loss):
 if __name__ == "__main__":
     num_classes = 16
     device = torch.device("cuda:1")
+    loss = HausdorffERLoss(num_classes)
     for _ in range(100):
         probs = torch.randint(0, num_classes, (10, num_classes, 96, 96, 96)).to(device)
         labels = torch.randint(0, num_classes, (10, num_classes, 96, 96, 96)).to(device)
-        
-        loss = MultiNeighborLoss(num_classes)
         
         l = loss(probs, labels)
         
