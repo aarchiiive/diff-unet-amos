@@ -12,6 +12,7 @@ from torch.nn.modules.loss import _Loss
 from torch.autograd import Variable
 
 from monai.losses.dice import DiceLoss, DiceFocalLoss, DiceCELoss, GeneralizedDiceLoss
+from monai.losses import FocalLoss
 
 from .utils import dist_map_transform
 
@@ -38,6 +39,8 @@ class Loss:
                 self.losses.append(BCEWithLogitsLoss())
             elif name == "dice":
                 self.losses.append(DiceLoss(sigmoid=True))
+            elif name == "focal":
+                self.losses.append(FocalLoss())
             elif name == "boundary":
                self.losses.append(BoundaryLoss(num_classes, one_hot))
             elif name == "dice_ce":
@@ -47,7 +50,7 @@ class Loss:
             elif name == "generalized_dice":
                self.losses.append(GeneralizedDiceLoss(sigmoid=True))
             elif name == "multi_neighbor":
-               self.losses.append(MultiNeighborLoss(num_classes=num_classes, include_background=include_background))
+               self.losses.append(MultiNeighborLoss(num_classes=num_classes))
             elif name == "hausdorff_er":
                 self.losses.append(HausdorffERLoss(num_classes=num_classes))
 
@@ -229,18 +232,14 @@ class HausdorffERLoss(_Loss):
 class MultiNeighborLoss(_Loss):
     def __init__(self, 
                  num_classes: int, 
-                 include_background: bool = True, 
                  reduction: str = "mean", 
                  centroid_method: str = "mean"):
         super(MultiNeighborLoss, self).__init__()
         self.num_classes = num_classes
-        self.include_background = include_background
         self.reduction = reduction
         self.centroid_method = centroid_method
         self.max_angles = self.num_classes * (self.num_classes - 1) // 2
         
-        if not include_background: self.num_classes += 1
-    
     def forward(self, probs: torch.Tensor, labels: torch.Tensor):
         assert probs.ndim == labels.ndim == 5, "The dimensions of probs and labels should be same and 5."
         
@@ -248,9 +247,14 @@ class MultiNeighborLoss(_Loss):
         for i in range(probs.size(0)):
             p_angles, l_angles = self.compute_angles(torch.sigmoid(probs[i, ...])), self.compute_angles(labels[i, ...])
             delta.append(torch.square(p_angles - l_angles))
-                    
+        
+        delta = torch.cat(delta)
+        nans = torch.isnan()
+        not_nans = (~nans).float()
+        indicies = torch.where(not_nans == 1)
+        
         if self.reduction == "mean":
-            return torch.mean(torch.cat(delta))
+            return torch.mean()
         
     def compute_angles(self, t: torch.Tensor) -> torch.Tensor:
         idx = 0 
@@ -264,16 +268,14 @@ class MultiNeighborLoss(_Loss):
             z, y, x = torch.where(t == i)
             centroids[i] = torch.stack(self.compute_centroids(x, y, z))
         
-        for i in range(1, self.num_classes):
+        for i in range(self.num_classes):
             for j in range(i+1, self.num_classes):
-                if centroids[i] is None or centroids[j] is None:
-                    pass
-                else:
+                if centroids[i] is not None and centroids[j] is not None:
                     m, n = centroids[i], centroids[j] # 2 vectors to calculate angles
                     angle = torch.acos(torch.dot(m, n) / (torch.norm(m) * torch.norm(n)))
                     
                     if torch.isnan(angle):
-                        angle = torch.randn((1, )).to(x.device)
+                        angle = 0 # torch.randn((1, )).to(x.device)
                     
                     angles[idx] = angle
                     idx += 1

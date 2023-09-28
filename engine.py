@@ -87,10 +87,10 @@ class Engine:
                               self.one_hot,
                               self.include_background)
         self.dice_metric = DiceHelper(include_background=True, # self.include_background, 
-                                      reduction="mean_batch", 
                                       get_not_nans=False,
-                                      softmax=True,
-                                      num_classes=self.num_classes)
+                                      num_classes=self.num_classes,
+                                      reduction="mean",
+                                      ignore_empty=True) # False
         self.window_infer = SlidingWindowInferer(roi_size=[spatial_size, width, height],
                                                  sw_batch_size=batch_size,
                                                  overlap=0.6)

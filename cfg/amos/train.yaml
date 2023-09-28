@@ -1,23 +1,29 @@
-model_name: swin_unetr # diff_unet  # "smooth_diff_unet"
+model_name: attention_unet # swin_unetr # diff_unet # smooth_diff_unet # attention_unet
 data_name: amos # "msd"
+data_path: /home/song99/ws/datasets/AMOS
 image_size: 96
 spatial_size: 96
+lr: 5e-4
+weight_decay: 1e-3
+scheduler: true
+warmup_epochs: 100
+timesteps: 1000
 classes: cfg/amos/classes.yaml
 device: cuda:0
 model_path: null # logs/swin-unetr-amos/weights/epoch_3500.pt # resume 
-pretrained_path: pretrained/swin_unetr/model_swinvit.pt
-max_epochs: 30000
+pretrained_path: pretrained/basic_unet/encoder.pt # pretrained/swin_unetr/model_swinvit.pt
+max_epochs: 3000
 val_freq: 25
-save_freq: 500
-batch_size: 15
+save_freq: 250
+batch_size: 10
 num_workers: 2
-num_gpus: 5
-project_name: swin-unetr
+device_ids: 0,1,2,3,4
+project_name: diff-unet-main
 wandb_name: null
-log_dir: swin-unetr-amos-with-bg # "diff-unet-msd"
-losses: mse,cse,dice # mse,cse,dice # e.g ce,mse,dice,cse,boundary,dice_ce,dice_focal,generalized_dice
+log_dir: attention-unet-amos-1
+losses: mse,bce,multi_neighbor,dice # e.g ce,mse,bce,dice,focal,boundary,dice_ce,dice_focal,generalized_dice,multi_neighbor,hausdorff_er
 loss_combine: sum # sum / mean / log
-remove_bg: false
+include_background: false
 use_wandb: true  # false
-use_amp: true  # true
-use_cache: true  # true
+use_amp: false  # true
+use_cache: false  # true

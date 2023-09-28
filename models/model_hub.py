@@ -4,6 +4,7 @@ from models.diff_unet import DiffUNet
 from models.smooth_diff_unet import SmoothDiffUNet
 from models.swin_unetr import SwinUNETR
 from models.attention_unet import AttentionUNet
+# from monai.networks.nets import AttentionUnet
 
 class ModelHub:
     def __init__(self) -> None:
@@ -22,6 +23,11 @@ class ModelHub:
         elif model_name == "attention_unet":
             model = AttentionUNet(in_channels=1,
                                   out_channels=kwargs['num_classes'])
+            # model = AttentionUnet(spatial_dims=3,
+            #                       in_channels=1,
+            #                       out_channels=kwargs['num_classes'],
+            #                       channels=[64, 128, 256, 512, 1024],
+            #                       strides=[2, 2, 2, 2, 2])
         else:
             raise ValueError(f"Invalid model_type: {model_name}")
         

@@ -168,6 +168,7 @@ class Trainer(Engine):
             
             if (epoch + 1) % self.val_freq == 0:
                 self.model.eval()
+                dices = []
                 for batch, _ in tqdm(self.dataloader["val"], total=len(self.dataloader["val"])):
                     batch = {
                         x: batch[x].to(self.device)
@@ -175,8 +176,7 @@ class Trainer(Engine):
                     }
 
                     with torch.no_grad():
-                        dices = self.validation_step(batch)
-                        assert dices is not None 
+                        dices.append(self.validation_step(batch))
 
                 self.validation_end(dices, epoch)
             
@@ -200,19 +200,19 @@ class Trainer(Engine):
                 for param in self.model.parameters(): param.grad = None
                 with torch.cuda.amp.autocast(self.use_amp):
                     loss = self.training_step(batch).float()
-                running_loss += loss.item()
                 
-                if self.auto_optim:
-                    if self.use_amp:
-                        self.scaler.scale(loss).backward()
-                        self.scaler.unscale_(self.optimizer)
-                        self.scaler.step(self.optimizer)
-                        self.scaler.update()
-                    else:
-                        loss.backward()
-                        self.optimizer.step()
-
-                    t.set_postfix(loss=loss.item(), lr=lr)
+                t.set_postfix(loss=loss.item(), lr=lr)
+                
+                if self.use_amp:
+                    self.scaler.scale(loss).backward()
+                    self.scaler.unscale_(self.optimizer)
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                else:
+                    loss.backward()
+                    self.optimizer.step()
+                
+                running_loss += loss.item()
                 t.update(1)
                 
             if self.scheduler is not None: self.scheduler.step()
@@ -247,8 +247,8 @@ class Trainer(Engine):
         return self.dice_metric(output, target)
     
     def validation_end(self, dices, epoch):
-        mean_dice = sum(dices) / len(dices)
-
+        dices = torch.stack(dices)
+        mean_dice = torch.mean(dices)
         if mean_dice > self.best_mean_dice:
             self.best_mean_dice = mean_dice
             if mean_dice > 0.5:
