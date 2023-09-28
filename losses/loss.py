@@ -238,7 +238,7 @@ class MultiNeighborLoss(_Loss):
         self.num_classes = num_classes
         self.reduction = reduction
         self.centroid_method = centroid_method
-        self.max_angles = self.num_classes * (self.num_classes - 1) // 2
+        self.max_count = self.num_classes * (self.num_classes - 1) // 2
         
     def forward(self, probs: torch.Tensor, labels: torch.Tensor):
         assert probs.ndim == labels.ndim == 5, "The dimensions of probs and labels should be same and 5."
@@ -249,37 +249,39 @@ class MultiNeighborLoss(_Loss):
             delta.append(torch.square(p_angles - l_angles))
         
         delta = torch.cat(delta)
-        nans = torch.isnan()
-        not_nans = (~nans).float()
-        indicies = torch.where(not_nans == 1)
+        not_nans = ~torch.isnan(delta)
+        delta = delta[not_nans]
+        delta = delta[delta > 0]
         
         if self.reduction == "mean":
-            return torch.mean()
+            return torch.mean(delta)
         
     def compute_angles(self, t: torch.Tensor) -> torch.Tensor:
-        idx = 0 
-        angles = torch.zeros(self.max_angles).to(t.device)
-        centroids = [None for _ in range(self.num_classes)]
+        angles = torch.zeros(self.max_count*self.max_count).to(t.device)
+        vectors = torch.zeros(self.max_count, 3).to(t.device)
+        centroids = torch.zeros((self.num_classes, 3)).to(t.device)
         
         t = torch.argmax(t, dim=0)
         
         for i in range(self.num_classes):
-            if i == 0: continue # do not consider backgrounds
             z, y, x = torch.where(t == i)
             centroids[i] = torch.stack(self.compute_centroids(x, y, z))
         
+        idx = 0
         for i in range(self.num_classes):
             for j in range(i+1, self.num_classes):
-                if centroids[i] is not None and centroids[j] is not None:
-                    m, n = centroids[i], centroids[j] # 2 vectors to calculate angles
-                    angle = torch.acos(torch.dot(m, n) / (torch.norm(m) * torch.norm(n)))
-                    
-                    if torch.isnan(angle):
-                        angle = 0 # torch.randn((1, )).to(x.device)
-                    
-                    angles[idx] = angle
-                    idx += 1
-                    
+                vectors[idx] = centroids[j] - centroids[i]
+                idx += 1
+    
+        idx = 0
+        for i in range(self.max_count):
+            m = vectors[i]
+            for j in range(i+1, self.max_count):
+                n = vectors[j]
+                angle = torch.acos(torch.dot(m, n) / (torch.norm(m) * torch.norm(n)))
+                angles[idx] = angle
+                idx += 1
+                
         return angles
     
     def compute_centroids(self, x: torch.Tensor, y: torch.Tensor, z: torch.Tensor):

@@ -90,7 +90,7 @@ class Engine:
                                       get_not_nans=False,
                                       num_classes=self.num_classes,
                                       reduction="mean",
-                                      ignore_empty=True) # False
+                                      ignore_empty=False) # False
         self.window_infer = SlidingWindowInferer(roi_size=[spatial_size, width, height],
                                                  sw_batch_size=batch_size,
                                                  overlap=0.6)
