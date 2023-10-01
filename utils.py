@@ -8,7 +8,13 @@ from prettytable import PrettyTable
 from collections import OrderedDict
 
 from monai import transforms
-from monai.data import load_decathlon_datalist
+from monai.data import (
+    ThreadDataLoader,
+    CacheDataset,
+    load_decathlon_datalist,
+    decollate_batch,
+    set_track_meta,
+)
 
 from dataset.amos_dataset import AMOSDataset
 from dataset.msd_dataset import MSDDataset
@@ -45,36 +51,34 @@ def get_class_names(classes: Dict[int, str], include_background: bool = False, b
 
 def get_dataloader(
     data_path: str, 
-    data_name: str, 
     image_size: int = 256, 
     spatial_size: int = 96, 
-    num_samples: int = 4, 
+    num_samples: int = 2, 
+    num_workers: int = 8,
+    batch_size: int = 1,
+    cache_rate: float = 1.0,
     mode: str = "train", 
-    use_cache: bool = True,
 ):
     transform = {}
     transform["train"] = transforms.Compose(
         [   
+            transforms.LoadImaged(keys=["image", "label"], ensure_channel_first=True),
             transforms.ScaleIntensityRanged(
                 keys=["image"], a_min=-175, a_max=250.0, b_min=0, b_max=1.0, clip=True
             ),
             transforms.CropForegroundd(
                 keys=["image", "label"], source_key="image"
             ),
-            # transforms.Orientationd(keys=["image", "label"], axcodes="RAS"),
-            # transforms.Spacingd(
-            #     keys=["image", "label"],
-            #     pixdim=(1.5, 1.5, 2.0),
-            #     mode=("bilinear", "nearest"),
-            # ),
-            # transforms.RandScaleCropd(
-            #     keys=["image", "label"], 
-            #     roi_scale=[0.75, 0.85, 1.0],
-            #     random_size=False
-            # ),
-            transforms.Resized(
+            transforms.Orientationd(keys=["image", "label"], axcodes="RAS"),
+            transforms.Spacingd(
                 keys=["image", "label"],
-                spatial_size=(int(spatial_size*1.1), int(image_size*1.1), int(image_size*1.1)),
+                pixdim=(1.5, 1.5, 2.0),
+                mode=("bilinear", "nearest"),
+            ),
+            transforms.RandScaleCropd(
+                keys=["image", "label"], 
+                roi_scale=[0.75, 0.85, 1.0],
+                random_size=False
             ),
             transforms.RandCropByPosNegLabeld(
                 keys=["image", "label"],
@@ -87,86 +91,73 @@ def get_dataloader(
                 image_threshold=0,
             ),
             
-            # transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=0),
-            # transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=1),
-            # transforms.RandFlipd(keys=["image", "label"], prob=0.2, spatial_axis=2),
-            # transforms.RandRotate90d(keys=["image", "label"], prob=0.2, max_k=3),
+            transforms.RandFlipd(keys=["image", "label"], prob=0.1, spatial_axis=0),
+            transforms.RandFlipd(keys=["image", "label"], prob=0.1, spatial_axis=1),
+            transforms.RandFlipd(keys=["image", "label"], prob=0.1, spatial_axis=2),
+            transforms.RandRotate90d(keys=["image", "label"], prob=0.1, max_k=3),
 
-            transforms.RandScaleIntensityd(keys="image", factors=0.1, prob=0.1),
-            transforms.RandShiftIntensityd(keys="image", offsets=0.1, prob=0.1),
+            # transforms.RandScaleIntensityd(keys=["image"], factors=0.1, prob=0.1),
+            transforms.RandShiftIntensityd(keys=["image"], offsets=0.1, prob=0.5),
             transforms.ToTensord(keys=["image", "label"]),
         ]
     )
     
     transform["val"] = transforms.Compose(
         [   
+            transforms.LoadImaged(keys=["image", "label"], ensure_channel_first=True),
             transforms.ScaleIntensityRanged(
                 keys=["image"], a_min=-175, a_max=250.0, b_min=0, b_max=1.0, clip=True
             ),
             transforms.CropForegroundd(keys=["image", "label"], source_key="image"),
-            transforms.Resized(
+            transforms.Orientationd(keys=["image", "label"], axcodes="RAS"),
+            transforms.Spacingd(
                 keys=["image", "label"],
-                spatial_size=(spatial_size, image_size, image_size),
+                pixdim=(1.5, 1.5, 2.0),
+                mode=("bilinear", "nearest"),
             ),
+            # transforms.Resized(keys=["image", "label"], spatial_size=(spatial_size, image_size, image_size)),
             transforms.ToTensord(keys=["image", "label"]),
         ]
     )
 
     transform["test"] = transforms.Compose(
         [   
+            transforms.LoadImaged(keys=["image"], ensure_channel_first=True),
             transforms.ScaleIntensityRanged(
                 keys=["image"], a_min=-175, a_max=250.0, b_min=0, b_max=1.0, clip=True
             ),            
-            transforms.ToTensord(keys=["image", "raw_label"]),
+            transforms.ToTensord(keys=["image"]),
         ]
     )
     
-    data = {
-        "train" : 
-            {"images" : sorted(glob.glob(f"{data_path}/imagesTr/*.nii.gz")),
-             "labels" : sorted(glob.glob(f"{data_path}/labelsTr/*.nii.gz"))},
-        "val" : 
-            {"images" : sorted(glob.glob(f"{data_path}/imagesVa/*.nii.gz")),
-             "labels" : sorted(glob.glob(f"{data_path}/labelsVa/*.nii.gz"))},
-        "test" : 
-            {"images" : sorted(glob.glob(f"{data_path}/imagesVa/*.nii.gz")),
-             "labels" : sorted(glob.glob(f"{data_path}/labelsVa/*.nii.gz"))},
-    }
+    def parse_type(p):
+        if p == "train":
+            return "training"
+        elif p == "val":
+            return "validation"
+        else:
+            return p
     
+    dataloader = {}
     for p in ["train", "val", "test"]:
-        paired = []
-        for image_path, label_path in zip(data[p]["images"], data[p]["labels"]):
-            pair = [image_path, label_path]
-            paired.append(pair)
-            
-        data[p]["files"] = paired
-    
-    if data_name == "amos":
-        Dataset = AMOSDataset
-    elif data_name == "msd":
-        Dataset = MSDDataset
-    elif data_name == "btcv":
-        Dataset = BTCVDataset
-    
-    dataset = {}
-    
-    for p in ["train", "val", "test"]:
-        dataset[p] = Dataset(
-            data_list=data[p]["files"], 
-            image_size=image_size,
-            spatial_size=spatial_size,
-            transform=transform[p], 
-            data_path=data_path, 
-            mode=p,
-            use_cache=use_cache and (p != "test"),
+        if mode == "train" and p == "test": continue
+        data = load_decathlon_datalist(os.path.join(data_path, "dataset.json"), True, parse_type(p))
+        dataset = CacheDataset(
+            data=data,
+            transform=transform[p],
+            cache_num=len(data),
+            cache_rate=cache_rate,
+            num_workers=max(num_workers, 20),
         )
+        dataloader[p] = ThreadDataLoader(
+            dataset=dataset,
+            num_workers=num_workers,
+            batch_size=batch_size if p == "train" else 1, 
+            shuffle=True if p == "train" else False
+        )
+        
 
-    if mode == "train":
-        return [dataset["train"], dataset["val"]]
-    elif mode == "test":
-        return dataset["test"]
-    else:
-        return [dataset["train"], dataset["val"], dataset["test"]]
+    return dataloader
 
 def parse_args():
     parser = argparse.ArgumentParser()
