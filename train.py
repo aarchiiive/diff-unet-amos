@@ -8,7 +8,7 @@ import numpy as np
 import torch 
 from torch.nn.parallel import DataParallel
 
-from monai.data import DataLoader
+from monai.data import DataLoader, ThreadDataLoader
 from monai.utils import set_determinism
 
 from light_training.utils.lr_scheduler import LinearWarmupCosineAnnealingLR
@@ -29,6 +29,7 @@ class Trainer(Engine):
         data_path=None,
         max_epochs=5000,
         batch_size=10, 
+        sw_batch_size=4,
         image_size=256,
         spatial_size=96,
         lr=1e-4,
@@ -59,6 +60,7 @@ class Trainer(Engine):
             data_name=data_name,
             data_path=data_path,
             batch_size=batch_size,
+            sw_batch_size=sw_batch_size,
             image_size=image_size,
             spatial_size=spatial_size,
             timesteps=timesteps,
@@ -145,15 +147,13 @@ class Trainer(Engine):
         print(f"Load pretrained weights from {pretrained_path}")
             
     def set_dataloader(self):
-        train_ds, val_ds = get_dataloader(data_path=self.data_path,
-                                          data_name=self.data_name,
-                                          image_size=self.image_size,
-                                          spatial_size=self.spatial_size,
-                                          mode="train", 
-                                          use_cache=self.use_cache)
-        self.dataloader = {"train": DataLoader(train_ds, batch_size=self.batch_size, shuffle=True),
-                           "val": DataLoader(val_ds, batch_size=self.batch_size, shuffle=False)}
-        
+        self.dataloader = get_dataloader(data_path=self.data_path,
+                                         image_size=self.image_size,
+                                         spatial_size=self.spatial_size,
+                                         num_workers=self.num_workers,
+                                         batch_size=self.batch_size,
+                                         mode="train")
+    
     def train(self):
         set_determinism(1234 + self.local_rank)
         print(f"check model parameter: {next(self.model.parameters()).sum():.4f}")
@@ -169,12 +169,7 @@ class Trainer(Engine):
             if (epoch + 1) % self.val_freq == 0:
                 self.model.eval()
                 dices = []
-                for batch, _ in tqdm(self.dataloader["val"], total=len(self.dataloader["val"])):
-                    batch = {
-                        x: batch[x].to(self.device)
-                        for x in batch if isinstance(batch[x], torch.Tensor)
-                    }
-
+                for batch in tqdm(self.dataloader["val"], total=len(self.dataloader["val"])):
                     with torch.no_grad():
                         dices.append(self.validation_step(batch))
 
@@ -186,16 +181,10 @@ class Trainer(Engine):
         lr = self.optimizer.state_dict()['param_groups'][0]['lr']
         
         with tqdm(total=len(self.dataloader["train"])) as t:
-            for batch, _ in self.dataloader["train"]:
+            for batch in self.dataloader["train"]:
                 self.global_step += 1
                 self.optimizer.zero_grad()
                 t.set_description('Epoch %i' % epoch)
-                
-                batch = batch[0]
-                batch = {
-                    x: batch[x].contiguous().to(self.device)
-                    for x in batch if isinstance(batch[x], torch.Tensor)
-                }
                 
                 for param in self.model.parameters(): param.grad = None
                 with torch.cuda.amp.autocast(self.use_amp):
@@ -243,7 +232,8 @@ class Trainer(Engine):
         return self.criterion(preds, labels) 
     
     def validation_step(self, batch):
-        _, output, target = self.infer(batch)
+        with torch.cuda.amp.autocast(self.use_amp):
+            _, output, target = self.infer(batch)
         return self.dice_metric(output, target)
     
     def validation_end(self, dices, epoch):

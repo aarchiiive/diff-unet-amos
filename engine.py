@@ -10,8 +10,9 @@ import torch.nn as nn
 from torchvision import transforms
 
 from monai.data import DataLoader
-from monai.inferers import SlidingWindowInferer
+from monai.inferers import SlidingWindowInferer, sliding_window_inference
 from monai.metrics import DiceMetric, DiceHelper
+from monai.transforms import AsDiscrete
 
 from dataset.base_dataset import BaseDataset
 from models.model_type import ModelType
@@ -25,6 +26,7 @@ class Engine:
         data_name="amos",
         data_path=None,
         batch_size=1,
+        sw_batch_size=4,
         image_size=256,
         spatial_size=96,
         timesteps=1000,
@@ -47,6 +49,7 @@ class Engine:
         self.data_name = data_name
         self.data_path = data_path
         self.batch_size = batch_size
+        self.sw_batch_size = sw_batch_size
         self.image_size = image_size
         self.spatial_size = spatial_size
         self.timesteps = timesteps
@@ -91,9 +94,9 @@ class Engine:
                                       num_classes=self.num_classes,
                                       reduction="mean",
                                       ignore_empty=False) # False
-        self.window_infer = SlidingWindowInferer(roi_size=[spatial_size, width, height],
-                                                 sw_batch_size=batch_size,
-                                                 overlap=0.6)
+        self.inferer = SlidingWindowInferer(roi_size=[spatial_size, width, height],
+                                            sw_batch_size=4,
+                                            overlap=0.6)
         
     def load_checkpoint(self, model_path: str):
         pass # to be implemented
@@ -101,7 +104,6 @@ class Engine:
     def load_model(self):
         return model_hub(
             model_name=self.model_name, 
-            image_size=self.image_size,
             spatial_size=self.spatial_size,
             timesteps=self.timesteps,
             num_classes=self.num_classes,
@@ -150,11 +152,11 @@ class Engine:
         pass
         
     def get_input(self, batch: dict):
-        image = batch["image"]
+        image = batch["image"].to(self.device)
         if self.mode == "train":
-            label = batch["label"]
+            label = batch["label"].to(self.device)
         elif self.mode == "test":
-            label = batch["raw_label"]
+            label = batch["raw_label"].to(self.device)
             
         label = self.convert_labels(label).float()
         
@@ -169,18 +171,19 @@ class Engine:
     
     def infer(self, batch) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         image, label = self.get_input(batch)    
+        imgsz = (self.spatial_size, self.image_size, self.image_size)
         
         if self.model_type == ModelType.Diffusion:
             if isinstance(self.model, nn.DataParallel):
-                output = self.window_infer(image, self.model.module, pred_type="ddim_sample")
+                output = sliding_window_inference(image, imgsz, self.sw_batch_size, self.model.module, pred_type="ddim_sample")
             else:
-                output = self.window_infer(image, self.model, pred_type="ddim_sample")
+                output = sliding_window_inference(image, imgsz, self.sw_batch_size, self.model, pred_type="ddim_sample")
         else:
-            output = self.window_infer(image, self.model)
+            output = sliding_window_inference(image, imgsz, self.sw_batch_size, self.model)
             
         output = torch.sigmoid(output)
         output = (output > 0.5).float()
-            
+        
         return image, output, label
     
     def get_numpy_image(self, t: torch.Tensor, shape: tuple, is_label: bool = False):
