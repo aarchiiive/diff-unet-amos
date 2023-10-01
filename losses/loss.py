@@ -11,9 +11,15 @@ from torch.nn import MSELoss, CrossEntropyLoss, BCEWithLogitsLoss
 from torch.nn.modules.loss import _Loss
 from torch.autograd import Variable
 
-from monai.losses.dice import DiceLoss, DiceFocalLoss, DiceCELoss, GeneralizedDiceLoss
-from monai.losses import FocalLoss
-
+from monai.losses import (
+    FocalLoss,
+    DiceLoss, 
+    DiceFocalLoss,
+    DiceCELoss, 
+    GeneralizedDiceLoss, 
+    GeneralizedDiceFocalLoss,
+    GeneralizedWassersteinDiceLoss,
+)
 from .utils import dist_map_transform
 
 class Loss:
@@ -29,6 +35,7 @@ class Loss:
         self.one_hot = one_hot
         self.include_background = include_background
         self.dist_transform = dist_map_transform()
+        self.dist_matrix = torch.ones(num_classes, num_classes, dtype=torch.float32)
         
         for name in losses.split(','):
             if name == "mse":
@@ -47,26 +54,29 @@ class Loss:
                 self.losses.append(DiceCELoss(sigmoid=True))
             elif name == "dice_focal":
                 self.losses.append(DiceFocalLoss(sigmoid=True))
-            elif name == "generalized_dice":
-               self.losses.append(GeneralizedDiceLoss(sigmoid=True))
             elif name == "multi_neighbor":
                self.losses.append(MultiNeighborLoss(num_classes=num_classes))
             elif name == "hausdorff_er":
                 self.losses.append(HausdorffERLoss(num_classes=num_classes))
+            elif name == "generalized_dice":
+               self.losses.append(GeneralizedDiceLoss(sigmoid=True))
+            elif name == "generalized_dice_focal":
+                self.losses.append(GeneralizedDiceFocalLoss())
+            elif name == "generalized_wasserstein_dice":
+                self.losses.append(GeneralizedWassersteinDiceLoss(self.dist_matrix))
 
         print(f"loss : {self.losses}")
         
     def __call__(self, preds: torch.Tensor, labels: torch.Tensor):
         losses = []
-        # if not self.include_background:
-        #     preds = preds[:, 1:, ...]
-        #     labels = labels[:, 1:, ...]
             
         for loss in self.losses:
             if isinstance(loss, MSELoss):
                 losses.append(loss(torch.sigmoid(preds), labels))
             elif isinstance(loss, BoundaryLoss):
                 losses.append(loss(preds, self.dist_transform(labels)))
+            elif isinstance(loss, GeneralizedWassersteinDiceLoss):
+                losses.append(loss(preds, torch.argmax(labels, dim=1, keepdim=True)))
             else:
                 losses.append(loss(preds, labels))
             
