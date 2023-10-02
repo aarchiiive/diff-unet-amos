@@ -14,12 +14,10 @@ from guided_diffusion.resample import UniformSampler
 
 class DiffUNet(nn.Module):
     def __init__(self, 
-                 image_size: Union[int, Tuple[int, int]],
                  spatial_size: int,
                  num_classes: int,
                  timesteps: int,
-                 mode: str,
-                 ):
+                 mode: str):
         super().__init__()
         self.spatial_size = spatial_size
         self.num_classes = num_classes
@@ -78,15 +76,6 @@ class DiffUNet(nn.Module):
                 
             return torch.cat(res, dim=0)
         
-        # if pred_type == "q_sample":
-        #     noise = torch.randn_like(x).to(x.device)
-        #     t, _ = self.sampler.sample(x.shape[0], x.device)
-        #     return self.diffusion.q_sample(x, t, noise=noise), t, noise
-
-        # elif pred_type == "denoise":
-        #     embeddings = self.embed_model(image)
-        #     return self.model(x, t=step, image=image, embeddings=embeddings)
-
         elif pred_type == "ddim_sample":
             res = []
             for i in range(len(image)):
@@ -107,3 +96,5 @@ class DiffUNet(nn.Module):
                     res.append(sample_return) 
                 
             return torch.cat(res, dim=0)
+        
+        
