@@ -1,34 +1,45 @@
-from typing import List, Sequence
+from typing import List, Sequence, Union, Optional
+
+import math
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import init
 
-# References : https://github.com/LeeJunHyun/Image_Segmentation/blob/master/network.py
+from monai.networks.blocks import Convolution
 
-def init_weights(net, init_type='normal', gain=0.02):
-    def init_func(m):
-        classname = m.__class__.__name__
-        if hasattr(m, 'weight') and (classname.find('Conv') != -1 or classname.find('Linear') != -1):
-            if init_type == 'normal':
-                init.normal_(m.weight.data, 0.0, gain)
-            elif init_type == 'xavier':
-                init.xavier_normal_(m.weight.data, gain=gain)
-            elif init_type == 'kaiming':
-                init.kaiming_normal_(m.weight.data, a=0, mode='fan_in')
-            elif init_type == 'orthogonal':
-                init.orthogonal_(m.weight.data, gain=gain)
-            else:
-                raise NotImplementedError('initialization method [%s] is not implemented' % init_type)
-            if hasattr(m, 'bias') and m.bias is not None:
-                init.constant_(m.bias.data, 0.0)
-        elif classname.find('BatchNorm2d') != -1:
-            init.normal_(m.weight.data, 1.0, gain)
-            init.constant_(m.bias.data, 0.0)
+"""
 
-    print('initialize network with %s' % init_type)
-    net.apply(init_func)
+[References] 
+https://github.com/LeeJunHyun/Image_Segmentation/blob/master/network.py
+https://github.com/Project-MONAI/MONAI/blob/dev/monai/networks/nets/attentionunet.py
+
+"""
+
+def get_timestep_embedding(timesteps, embedding_dim):
+    """
+    This matches the implementation in Denoising Diffusion Probabilistic Models:
+    From Fairseq.
+    Build sinusoidal embeddings.
+    This matches the implementation in tensor2tensor, but differs slightly
+    from the description in Section 3.5 of "Attention Is All You Need".
+    """
+    assert len(timesteps.shape) == 1
+
+    half_dim = embedding_dim // 2
+    emb = math.log(10000) / (half_dim - 1)
+    emb = torch.exp(torch.arange(half_dim, dtype=torch.float32) * -emb)
+    emb = emb.to(device=timesteps.device)
+    emb = timesteps.float()[:, None] * emb[None, :]
+    emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1)
+    if embedding_dim % 2 == 1:  # zero pad
+        emb = torch.nn.functional.pad(emb, (0, 1, 0, 0))
+    return emb
+
+def nonlinearity(x):
+    # swish
+    return x*torch.sigmoid(x)
 
 def conv_bn(spatial_dims: int) -> Sequence[nn.Module]:
     if spatial_dims == 2:
@@ -38,6 +49,19 @@ def conv_bn(spatial_dims: int) -> Sequence[nn.Module]:
     else:
         raise NotImplementedError(f"spatial_dims value of {spatial_dims} is not supported. Please use ndim 2 or 3.")
 
+
+class MaxPool(nn.Module):
+    def __init__(self, spatial_dims: int, pool_size: int) -> None:
+        super().__init__()
+        if spatial_dims == 2:
+            self.pool = nn.MaxPool2d(kernel_size=pool_size, stride=pool_size)
+        elif spatial_dims == 3:
+            self.pool = nn.MaxPool3d(kernel_size=pool_size, stride=pool_size)
+        else:
+            raise NotImplementedError(f"spatial_dims value of {spatial_dims} is not supported. Please use ndim 2 or 3.")
+        
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.pool(x)
 
 class Conv(nn.Module):
     def __init__(self, spatial_dims: int, in_channels: int, out_channels: int, dropout: float):
@@ -74,9 +98,9 @@ class UpConv(nn.Module):
     def forward(self, x):
         return self.up(x)
 
-class AttentionBlock(nn.Module):
+class AttentionLayer(nn.Module):
     def __init__(self, spatial_dims: int, in_channels: int, out_channels: int, dropout: float):
-        super(AttentionBlock,self).__init__()
+        super(AttentionLayer,self).__init__()
         f_g = f_l = out_channels
         f_int = out_channels // 2
         
@@ -113,7 +137,8 @@ class AttentionBlock(nn.Module):
         x = torch.cat((x, g),dim=1)        
 
         return self.out(x)
-
+    
+    
 class AttentionUNet(nn.Module):
     def __init__(self, 
                  spatial_dims: int = 3,
@@ -124,29 +149,29 @@ class AttentionUNet(nn.Module):
                  stride: int = 1,
                  pool_size: int = 2,
                  dropout: float = 0.2):
-        super(AttentionUNet,self).__init__()
-        features = [64, 128, 256, 512, 1024]
-        
+        super().__init__()
+        features = reversed(features)
         self.head = Conv(spatial_dims, in_channels, features[0], dropout)
         self.down = nn.ModuleList()
         
         for i in range(len(features[:-1])):
             self.down.append(nn.Sequential(
-                nn.MaxPool3d(kernel_size=pool_size, stride=pool_size),
+                MaxPool(spatial_dims, pool_size),
                 Conv(spatial_dims, features[i], features[i+1], dropout)
             ))
             
-        features.reverse()
+        features = reversed(features)
         self.up = nn.ModuleList()
         
         for i in range(len(features[:-1])):
-            self.up.append(AttentionBlock(spatial_dims, features[i], features[i+1], dropout))
+            self.up.append(AttentionLayer(spatial_dims, features[i], features[i+1], dropout))
         
         self.out = nn.Conv3d(features[-1], out_channels, kernel_size=kernel_size, stride=stride, padding=0)
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # downsampling
         embeddings = self.downsample(x)
+        embeddings.reverse()
         
         # upsampling
         x = self.upsample(embeddings)
@@ -158,8 +183,6 @@ class AttentionUNet(nn.Module):
         for i in range(len(self.down)):
             _x.append(self.down[i](_x[-1]))
         
-        _x.reverse()
-        
         return _x
     
     def upsample(self, embeddings: List[torch.Tensor]) -> torch.Tensor:
@@ -168,8 +191,198 @@ class AttentionUNet(nn.Module):
             x = self.up[i](embeddings[i], embeddings[i+1]) if x is None else self.up[i](x, embeddings[i+1])
         
         return x
-        
     
+    
+""" Attention-UNet using timesteps """
+
+class TimeStepEmbedder(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.dense = nn.ModuleList([
+            torch.nn.Linear(128, 512),
+            torch.nn.Linear(512, 512),
+        ])
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.dense(x)
+
+class TwoConv(nn.Sequential):
+    """two convolutions."""
+
+    # @deprecated_arg(name="dim", new_name="spatial_dims", since="0.6", msg_suffix="Please use `spatial_dims` instead.")
+    def __init__(
+        self,
+        spatial_dims: int,
+        in_chns: int,
+        out_chns: int,
+        act: Union[str, tuple],
+        norm: Union[str, tuple],
+        bias: bool,
+        dropout: Union[float, tuple] = 0.0,
+        dim: Optional[int] = None,
+    ):
+        """
+        Args:
+            spatial_dims: number of spatial dimensions.
+            in_chns: number of input channels.
+            out_chns: number of output channels.
+            act: activation type and arguments.
+            norm: feature normalization type and arguments.
+            bias: whether to have a bias term in convolution blocks.
+            dropout: dropout ratio. Defaults to no dropout.
+
+        .. deprecated:: 0.6.0
+            ``dim`` is deprecated, use ``spatial_dims`` instead.
+        """
+        super().__init__()
+        self.temb_proj = torch.nn.Linear(512,
+                                         out_chns)
+
+        if dim is not None:
+            spatial_dims = dim
+        conv_0 = Convolution(spatial_dims, in_chns, out_chns, act=act, norm=norm, dropout=dropout, bias=bias, padding=1)
+        conv_1 = Convolution(
+            spatial_dims, out_chns, out_chns, act=act, norm=norm, dropout=dropout, bias=bias, padding=1
+        )
+        self.add_module("conv_0", conv_0)
+        self.add_module("conv_1", conv_1)
+    
+    def forward(self, x, temb):
+        x = self.conv_0(x)
+        x = x + self.temb_proj(nonlinearity(temb))[:, :, None, None, None]
+        x = self.conv_1(x)
+        return x 
+     
+class AttentionCatLayer(AttentionLayer):
+    def __init__(self, 
+                 spatial_dims: int, 
+                 in_channels: int, 
+                 cat_channels: int,
+                 out_channels: int, 
+                 act: Union[str, tuple],
+                 norm: Union[str, tuple],
+                 bias: bool,
+                 dropout: float,
+                 halves: bool = True):
+        super().__init__(spatial_dims, in_channels, out_channels, dropout)
+
+        up_channels = in_channels // 2 if halves else in_channels
+        self.convs = TwoConv(spatial_dims, cat_channels + up_channels, out_channels, act, norm, bias, dropout)
+
+    def forward(self, x: torch.Tensor, x_e: torch.Tensor, temb: torch.Tensor):
+        x0: torch.Tensor = super().forward(x, x_e)
+        dimensions = len(x.shape) - 2
+        sp = [0] * (dimensions * 2)
+        for i in range(dimensions):
+            if x_e.shape[-i - 1] != x0.shape[-i - 1]:
+                sp[i * 2 + 1] = 1
+        x0 = torch.nn.functional.pad(x0, sp, "replicate")
+        x = self.convs(torch.cat([x_e, x0], dim=1), temb)  # input channels: (cat_chns + up_chns)
+        
+        return x
+    
+class AttentionUNetEncoder(nn.Module):
+    def __init__(self, 
+                 spatial_dims: int = 3,
+                 in_channels: int = 3, 
+                 features: Sequence[int] = [64, 128, 256, 512, 1024],
+                 pool_size: int = 2,
+                 dropout: float = 0.2):
+        super().__init__()
+        self.head = Conv(spatial_dims, in_channels, features[0], dropout)
+        self.down = nn.ModuleList()
+        
+        for i in range(len(features[:-1])):
+            self.down.append(nn.Sequential(
+                MaxPool(spatial_dims, pool_size),
+                Conv(spatial_dims, features[i], features[i+1], dropout)
+            ))
+
+    def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
+        _x = [self.head(x)]
+        for i in range(len(self.down)):
+            _x.append(self.down[i](_x[-1]))
+        
+        return _x
+    
+class AttentionUNetDecoder(nn.Module):
+    def __init__(self, 
+                 spatial_dims: int = 3,
+                 in_channels: int = 3, 
+                 out_channels: int = 1,
+                 act: Union[str, tuple] = ("LeakyReLU", {"negative_slope": 0.1, "inplace": True}),
+                 norm: Union[str, tuple] = ("instance", {"affine": True}),
+                 bias: bool = True,
+                 features: Sequence[int] = [64, 128, 256, 512, 1024],
+                 kernel_size: int = 1,
+                 stride: int = 1,
+                 pool_size: int = 2,
+                 dropout: float = 0.2,
+                 ):
+        super().__init__()
+        if isinstance(features , tuple): features = list(features)
+        self.temb = TimeStepEmbedder()
+        self.head = Conv(spatial_dims, in_channels, features[0], dropout)
+        self.down = nn.ModuleList()
+        
+        for i in range(len(features[:-1])):
+            self.down.append(nn.Sequential(
+                MaxPool(spatial_dims, pool_size),
+                Conv(spatial_dims, features[i], features[i+1], dropout)
+            ))
+            
+        features.reverse()
+        self.up = nn.ModuleList()
+        
+        for i in range(len(features[:-1])):
+            self.up.append(AttentionCatLayer(
+                spatial_dims=spatial_dims, 
+                in_channels=features[i], 
+                cat_channels=features[i+1], 
+                out_channels=features[i+1], 
+                act=act,
+                norm=norm,
+                bias=bias,
+                dropout=dropout,
+            ))
+        
+        self.out = nn.Conv3d(features[-1], out_channels, kernel_size=kernel_size, stride=stride, padding=0)
+        
+    def forward(self, x: torch.Tensor, t: torch.Tensor, embeddings: List[torch.Tensor], image: torch.Tensor) -> torch.Tensor:
+        temb = get_timestep_embedding(t, 128)
+        temb = self.temb.dense[0](temb)
+        temb = nonlinearity(temb)
+        temb = self.temb.dense[1](temb)
+        
+        x = torch.cat([image, x], dim=1)
+        
+        # downsampling
+        _x = self.downsample(x, embeddings)
+        
+        # reverse embeddings
+        _x.reverse()
+        
+        # upsampling
+        x = self.upsample(_x, temb)
+        
+        return self.out(x)
+    
+    def downsample(self, x: torch.Tensor, embeddings: List[torch.Tensor]) -> List[torch.Tensor]:
+        _x = [self.head(x) + embeddings[0]]
+        for i in range(len(self.down)):
+            d = self.down[i](_x[-1])  + embeddings[i + 1]
+            _x.append(d)
+        
+        return _x
+    
+    def upsample(self, _x: List[torch.Tensor], temb: torch.Tensor) -> torch.Tensor:
+        x = None
+        for i in range(len(self.up)):
+            x = self.up[i](_x[i], _x[i+1], temb) if x is None else self.up[i](x, _x[i+1], temb)
+        
+        return x
+
+
 if __name__ == "__main__":
     model = AttentionUNet(in_channels=1, out_channels=13)
     print(model)
