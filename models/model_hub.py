@@ -29,7 +29,7 @@ class ModelHub:
             #                       channels=[64, 128, 256, 512, 1024],
             #                       strides=[2, 2, 2, 2, 2])
         else:
-            raise ValueError(f"Invalid model_type: {model_name}")
+            raise ValueError(f"Invalid model type: {model_name}")
         
         return model
 
