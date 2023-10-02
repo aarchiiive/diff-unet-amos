@@ -23,7 +23,7 @@ class ModelHub:
         elif model_name == "attention_unet":
             model = AttentionUNet(in_channels=1,
                                   out_channels=kwargs['num_classes'])
-        elif model_name == "attention_unet":
+        elif model_name == "attention_diff_unet":
             model = AttentionDiffUNet(in_channels=1,
                                       out_channels=kwargs['num_classes'],
                                       timesteps=kwargs["timesteps"],
