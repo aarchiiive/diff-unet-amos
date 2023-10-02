@@ -139,12 +139,6 @@ class Engine:
 
         print(f"model is saved in {save_path}")
     
-    def get_dataloader(self, dataset: BaseDataset, batch_size: int = 1, shuffle: bool = False):
-        return DataLoader(dataset,
-                          batch_size=batch_size,
-                          shuffle=shuffle,
-                          num_workers=self.num_workers)
-        
     def set_dataloader(self):
         pass
     
