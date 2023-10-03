@@ -100,7 +100,7 @@ class UpConv(nn.Module):
 
 class AttentionLayer(nn.Module):
     def __init__(self, spatial_dims: int, in_channels: int, out_channels: int, dropout: float):
-        super(AttentionLayer,self).__init__()
+        super().__init__()
         f_g = f_l = out_channels
         f_int = out_channels // 2
         
@@ -134,8 +134,9 @@ class AttentionLayer(nn.Module):
         psi = self.psi(psi)
         x = x2 * psi
         # concatenate
-        x = torch.cat((x, g),dim=1)        
-
+        x = torch.cat((x, g),dim=1)     
+        # print(f"out : {x.shape}")
+        
         return self.out(x)
     
     
@@ -270,6 +271,8 @@ class AttentionCatLayer(AttentionLayer):
         self.convs = TwoConv(spatial_dims, cat_channels + up_channels, out_channels, act, norm, bias, dropout)
 
     def forward(self, x: torch.Tensor, x_e: torch.Tensor, temb: torch.Tensor):
+        # print(f"x : {x.shape}")
+        # print(f"x_e : {x_e.shape}")
         x0: torch.Tensor = super().forward(x, x_e)
         dimensions = len(x.shape) - 2
         sp = [0] * (dimensions * 2)
@@ -326,6 +329,7 @@ class AttentionUNetDecoder(nn.Module):
         self.down = nn.ModuleList()
         
         for i in range(len(features[:-1])):
+            # print(f"{features[i]}, {features[i+1]}")
             self.down.append(nn.Sequential(
                 MaxPool(spatial_dims, pool_size),
                 Conv(spatial_dims, features[i], features[i+1], dropout)
@@ -335,6 +339,7 @@ class AttentionUNetDecoder(nn.Module):
         self.up = nn.ModuleList()
         
         for i in range(len(features[:-1])):
+            # print(f"{features[i]}, {features[i+1]}")
             self.up.append(AttentionCatLayer(
                 spatial_dims=spatial_dims, 
                 in_channels=features[i], 
@@ -378,6 +383,7 @@ class AttentionUNetDecoder(nn.Module):
     def upsample(self, _x: List[torch.Tensor], temb: torch.Tensor) -> torch.Tensor:
         x = None
         for i in range(len(self.up)):
+            # print(i, _x[i].shape, _x[i+1].shape)
             x = self.up[i](_x[i], _x[i+1], temb) if x is None else self.up[i](x, _x[i+1], temb)
         
         return x

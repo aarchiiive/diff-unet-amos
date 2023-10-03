@@ -27,7 +27,7 @@ def model_hub(model_name: str, **kwargs):
     return ModelHub().__call__(model_name, **kwargs)
 
 def get_model_type(model_name: str):
-    assert model_name in ["diff_unet", "smooth_diff_unet", "swin_unetr", "attention_unet"]
+    assert model_name in ["diff_unet", "smooth_diff_unet", "swin_unetr", "attention_unet", "attention_diff_unet"]
     if "diff" in model_name:
         return ModelType.Diffusion
     elif model_name in ["swin_unetr"]:
