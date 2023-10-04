@@ -8,8 +8,8 @@ import numpy as np
 import torch 
 from torch.nn.parallel import DataParallel
 
-from monai.data import DataLoader, ThreadDataLoader
 from monai.utils import set_determinism
+from monai.transforms import AsDiscrete
 
 from light_training.utils.lr_scheduler import LinearWarmupCosineAnnealingLR
 
@@ -30,6 +30,7 @@ class Trainer(Engine):
         max_epochs=5000,
         batch_size=10, 
         sw_batch_size=4,
+        overlap=0.25,
         image_size=256,
         spatial_size=96,
         lr=1e-4,
@@ -61,6 +62,7 @@ class Trainer(Engine):
             data_path=data_path,
             batch_size=batch_size,
             sw_batch_size=sw_batch_size,
+            overlap=overlap,
             image_size=image_size,
             spatial_size=spatial_size,
             timesteps=timesteps,
@@ -133,6 +135,7 @@ class Trainer(Engine):
             if state_dict[k] is not None:
                 getattr(self, k).load_state_dict(state_dict[k])
         self.start_epoch = state_dict['epoch']
+        self.project_name = state_dict['project_name']
         self.global_step = state_dict['global_step']
         self.best_mean_dice = state_dict['best_mean_dice']
         self.wandb_id = state_dict['id']
@@ -233,8 +236,22 @@ class Trainer(Engine):
     
     def validation_step(self, batch):
         with torch.cuda.amp.autocast(self.use_amp):
-            _, output, target = self.infer(batch)
-        return self.dice_metric(output, target)
+            _, outputs, labels = self.infer(batch)
+            
+        dices = []
+        for i in range(self.num_classes):
+            output = outputs[:, i]
+            label = labels[:, i]
+            if output.sum() > 0 and label.sum() > 0:
+                self.dice_metric(output, label)
+                dice = self.dice_metric.aggregate()
+            elif output.sum() > 0 and label.sum() == 0:
+                dice = torch.Tensor([1.0]).to(outputs.device)
+            
+            dices.append(dice)
+            
+        self.dice_metric.reset()
+        return torch.mean(torch.stack(dices))
     
     def validation_end(self, dices, epoch):
         dices = torch.stack(dices)

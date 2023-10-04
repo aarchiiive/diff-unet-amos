@@ -138,9 +138,15 @@ def get_dataloader(
         else:
             return p
     
+    if mode == "train":
+        phase = ["train", "val", "test"]
+    elif mode == "test":
+        phase = ["val"]
+
     dataloader = {}
-    for p in ["train", "val", "test"]:
+    for p in phase:
         if mode == "train" and p == "test": continue
+        elif mode == "test" and p == "train": continue
         data = load_decathlon_datalist(os.path.join(data_path, "dataset.json"), True, parse_type(p))
         dataset = CacheDataset(
             data=data,

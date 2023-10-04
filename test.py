@@ -1,29 +1,31 @@
 import os
 import wandb
-import torch 
+import warnings
+
 from tqdm import tqdm
 from prettytable import PrettyTable
 from collections import OrderedDict
 
-from medpy.metric.binary import dc, hd95
+import numpy as np
 
-from monai.data import DataLoader
+import torch 
 from monai.utils import set_determinism
-from monai.metrics import DiceMetric
 
-from metric import iou_score
 from engine import Engine
-from models.model_type import ModelType
-from utils import parse_args, get_data_path, get_dataloader
+from utils import parse_args, get_dataloader
 
 set_determinism(123)
-        
+warnings.filterwarnings("ignore")
+
 class Tester(Engine):
     def __init__(
         self, 
         model_path,
         model_name="diff_unet",
         data_name="amos",
+        data_path=None,
+        sw_batch_size=4,
+        overlap=0.25,
         image_size=256,
         spatial_size=96,
         classes=None,
@@ -31,14 +33,17 @@ class Tester(Engine):
         device="cpu", 
         project_name="diff-unet-test",
         wandb_name=None,
-        remove_bg=False,
+        include_background=False,
         use_amp=True,
         use_cache=False,
         use_wandb=True,
     ):
         super().__init__(
             model_name=model_name,
-            data_name=data_name, 
+            data_name=data_name,
+            data_path=data_path, 
+            sw_batch_size=sw_batch_size,
+            overlap=overlap,
             image_size=image_size,
             spatial_size=spatial_size,
             classes=classes, 
@@ -46,7 +51,7 @@ class Tester(Engine):
             model_path=model_path,
             project_name=project_name,
             wandb_name=wandb_name,
-            remove_bg=remove_bg,
+            include_background=include_background,
             use_amp=use_amp,
             use_cache=use_cache,
             use_wandb=use_wandb,
@@ -54,7 +59,6 @@ class Tester(Engine):
         )
         self.epoch = epoch
         self.model = self.load_model()
-        self.dice_metric = DiceMetric(include_background=True, num_classes=2, reduction="mean", get_not_nans=False)
         self.load_checkpoint(model_path)
         self.set_dataloader()    
         
@@ -74,83 +78,99 @@ class Tester(Engine):
         print(f"Checkpoint loaded from {model_path}.....")
 
     def set_dataloader(self):
-        dataset = get_dataloader(data_path=get_data_path(self.data_name),
-                                 data_name=self.data_name,
-                                 image_size=self.image_size,
-                                 spatial_size=self.spatial_size,
-                                 mode=self.mode, 
-                                 use_cache=self.use_cache)
-        self.dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
+        self.dataloader = get_dataloader(data_path=self.data_path,
+                                         image_size=self.image_size,
+                                         spatial_size=self.spatial_size,
+                                         num_workers=self.num_workers,
+                                         batch_size=self.batch_size,
+                                         mode=self.mode)
 
     def test(self):
         self.model.eval()
-        
+        dices = []
         with torch.cuda.amp.autocast(self.use_amp):
-            for batch, filename in tqdm(self.dataloader, total=len(self.dataloader)):
-                batch = {
-                    x: batch[x].to(self.device)
-                    for x in batch if isinstance(batch[x], torch.Tensor)
-                }
-                
+            for batch in tqdm(self.dataloader["val"], total=len(self.dataloader["val"])):
                 with torch.no_grad():
-                    self.validation_step(batch, filename[0])
+                    dices.append(self.validation_step(batch))
                 
                 self.global_step += 1
-                
-        if self.use_wandb: wandb.log({"table": self.table})  
-    
-    
-    def validation_step(self, batch, filename):
-        image, output, label = self.infer(batch)
         
-        _, _, d, w, h = label.shape
-        image = torch.nn.functional.interpolate(image, mode="nearest", size=(d, w, h))
-        output = torch.nn.functional.interpolate(output, mode="nearest", size=(d, w, h)) # idea
+        if self.use_wandb: wandb.log({"table": self.table})  
+
+        print("="*100)
+        print(f"results : {np.mean(dices):.4f}")
+    
+    def validation_step(self, batch):
+        with torch.cuda.amp.autocast(self.use_amp):
+            image, outputs, labels = self.infer(batch)
         
         if self.use_wandb:
-            vis_data = self.tensor2images(image, label, output, image.shape) # put appropriate index
+            vis_data = self.tensor2images(image, labels, outputs, image.shape) # put appropriate index
             
         dices = OrderedDict({v : 0 for v in self.class_names.values()})
         hds = OrderedDict({v : 0 for v in self.class_names.values()})
         ious = OrderedDict({v : 0 for v in self.class_names.values()})
         
+        classes = list(self.class_names.values())
+        # output = torch.argmax(output)
+        # label = torch.argmax(label)
+        dices = []
         for i in range(self.num_classes):
-            pred = output[..., i].unsqueeze(0)
-            gt = label[..., i].unsqueeze(0)
-            
-            if torch.sum(pred) > 0 and torch.sum(gt) > 0:
-                # dice = dc(pred, gt)
-                dice = self.dice_metric(pred, gt)[0, 1]
-                # hd = hd95(pred, gt)
-                # iou = iou_score(pred, gt)
-            elif torch.sum(pred) > 0 and torch.sum(gt) == 0:
+            output = outputs[:, i]
+            label = labels[:, i]
+            if output.sum() > 0 and label.sum() > 0:
+                self.dice_metric(output, label)
+                dice = self.dice_metric.aggregate().item()
+            elif output.sum() > 0 and label.sum() == 0:
                 dice = 1
-                hd = 0
-                iou = 1
-            else:
-                dice = 0
-                hd = 0
-                iou = 0
             
-            if self.remove_bg: i += 1
-            
-            dices[self.class_names[i]] = dice
-            # hds[self.class_names[i]] = hd
-            # ious[self.class_names[i]] = iou
-            
-            table = PrettyTable()
-            table.title = self.class_names[i]
-            table.field_names = ["metric", "score"]
-            table.add_row(["dice", f"{dice:.4f}"])
-            # table.add_row(["hd95", f"{hd:.4f}"])
-            # table.add_row(["iou", f"{iou:.4f}"])
-            print(table)
+            print(f"{classes[i]} : {dice:.4f}")
+            dices.append(dice)
+        self.dice_metric.reset()
+        print(f"mean dice : {np.mean(dices):.4f}")
         
-        mean_dice = sum(dices.values()) / self.num_classes
-        # mean_hd95 = sum(hds.values()) / self.num_classes
-        # mean_iou = sum(ious.values()) / self.num_classes
+        return np.mean(dices)
         
-        print(f"mean_dice : {mean_dice:.4f}")
+        # dice = self.dice_metric(output, label)
+        # print(dice)
+        # print(torch.mean(dice))
+        # for i in range(self.num_classes):
+        #     pred = output[..., i].unsqueeze(0)
+        #     gt = label[..., i].unsqueeze(0)
+            
+        #     if torch.sum(pred) > 0 and torch.sum(gt) > 0:
+        #         # dice = dc(pred, gt)
+        #         dice = self.dice_metric(pred, gt)[0, 1]
+        #         # hd = hd95(pred, gt)
+        #         # iou = iou_score(pred, gt)
+        #     elif torch.sum(pred) > 0 and torch.sum(gt) == 0:
+        #         dice = 1
+        #         hd = 0
+        #         iou = 1
+        #     else:
+        #         dice = 0
+        #         hd = 0
+        #         iou = 0
+            
+        #     if self.remove_bg: i += 1
+            
+        #     dices[self.class_names[i]] = dice
+        #     # hds[self.class_names[i]] = hd
+        #     # ious[self.class_names[i]] = iou
+            
+        #     table = PrettyTable()
+        #     table.title = self.class_names[i]
+        #     table.field_names = ["metric", "score"]
+        #     table.add_row(["dice", f"{dice:.4f}"])
+        #     # table.add_row(["hd95", f"{hd:.4f}"])
+        #     # table.add_row(["iou", f"{iou:.4f}"])
+        #     print(table)
+        
+        # mean_dice = sum(dices.values()) / self.num_classes
+        # # mean_hd95 = sum(hds.values()) / self.num_classes
+        # # mean_iou = sum(ious.values()) / self.num_classes
+        
+        # print(f"mean_dice : {mean_dice:.4f}")
         # print(f"mean_hd95 : {mean_hd95:.4f}")
         # print(f"mean_iou : {mean_iou:.4f}")
         

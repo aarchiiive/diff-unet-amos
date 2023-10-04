@@ -27,6 +27,7 @@ class Engine:
         data_path=None,
         batch_size=1,
         sw_batch_size=4,
+        overlap=0.25,
         image_size=256,
         spatial_size=96,
         timesteps=1000,
@@ -50,6 +51,7 @@ class Engine:
         self.data_path = data_path
         self.batch_size = batch_size
         self.sw_batch_size = sw_batch_size
+        self.overlap = float(overlap)
         self.image_size = image_size
         self.spatial_size = spatial_size
         self.timesteps = timesteps
@@ -82,22 +84,27 @@ class Engine:
         if use_wandb and mode == "test":
             self.table = None # reserved
         
-        self.scaler = torch.cuda.amp.GradScaler()
-        self.tensor2pil = transforms.ToPILImage()
-        self.criterion = Loss(self.losses, 
+        if self.mode == "train":
+            self.criterion = Loss(self.losses, 
                               self.num_classes, 
                               self.loss_combine, 
                               self.one_hot,
                               self.include_background)
-        self.dice_metric = DiceHelper(include_background=True, # self.include_background, 
-                                      get_not_nans=False,
-                                      num_classes=self.num_classes,
-                                      reduction="mean",
-                                      ignore_empty=False) # False
-        self.inferer = SlidingWindowInferer(roi_size=[spatial_size, width, height],
-                                            sw_batch_size=4,
-                                            overlap=0.6)
-        
+            
+        self.scaler = torch.cuda.amp.GradScaler()
+        self.tensor2pil = transforms.ToPILImage()
+        # self.dice_metric = DiceHelper(include_background=True, # self.include_background, 
+        #                               get_not_nans=False,
+        #                               num_classes=self.num_classes,
+        #                               reduction="none",
+        #                               ignore_empty=True) # False
+        # self.dice_metric = DiceHelper(include_background=True, # self.include_background, 
+        #                               get_not_nans=False,
+        #                               reduction="mean",
+        #                               sigmoid=True,
+        #                               ignore_empty=True) # False
+        self.dice_metric = DiceMetric(include_background=True, reduction="mean", get_not_nans=False)
+    
     def load_checkpoint(self, model_path: str):
         pass # to be implemented
     
@@ -147,38 +154,38 @@ class Engine:
         
     def get_input(self, batch: dict):
         image = batch["image"].to(self.device)
-        if self.mode == "train":
-            label = batch["label"].to(self.device)
-        elif self.mode == "test":
-            label = batch["raw_label"].to(self.device)
-            
+        label = batch["label"].to(self.device)
         label = self.convert_labels(label).float()
         
         return image, label
 
     def convert_labels(self, labels: torch.Tensor):
         if self.one_hot:
+            # print(torch.unique(labels, return_counts=True))
             new_labels = [labels == i for i in sorted(self.class_names.keys())]
             return torch.cat(new_labels, dim=1) 
         else:
             return labels
     
     def infer(self, batch) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        image, label = self.get_input(batch)    
+        image, labels = self.get_input(batch)    
         imgsz = (self.spatial_size, self.image_size, self.image_size)
+        # reserved_device = torch.device("cuda:1")
         
         if self.model_type == ModelType.Diffusion:
             if isinstance(self.model, nn.DataParallel):
-                output = sliding_window_inference(image, imgsz, self.sw_batch_size, self.model.module, pred_type="ddim_sample")
+                outputs = sliding_window_inference(image, imgsz, self.sw_batch_size, self.model.module, self.overlap, pred_type="ddim_sample")
             else:
-                output = sliding_window_inference(image, imgsz, self.sw_batch_size, self.model, pred_type="ddim_sample")
+                outputs = sliding_window_inference(image, imgsz, self.sw_batch_size, self.model, self.overlap, pred_type="ddim_sample")
         else:
-            output = sliding_window_inference(image, imgsz, self.sw_batch_size, self.model)
-            
-        output = torch.sigmoid(output)
-        output = (output > 0.5).float()
+            outputs = sliding_window_inference(image, imgsz, self.sw_batch_size, self.model, self.overlap)
         
-        return image, output, label
+        outputs = torch.sigmoid(outputs)
+        outputs = (outputs > 0.5).float()
+        # print(output.shape)
+        # print(torch.unique(torch.argmax(output, dim=1), return_counts=True))
+        
+        return image, outputs, labels
     
     def get_numpy_image(self, t: torch.Tensor, shape: tuple, is_label: bool = False):
         _, _, d, w, h = shape
@@ -196,13 +203,13 @@ class Engine:
     
     def tensor2images(self, 
                       image: torch.Tensor, 
-                      label: torch.Tensor, 
-                      output: torch.Tensor, 
+                      outputs: torch.Tensor, 
+                      labels: torch.Tensor, 
                       shape: tuple):
         return {
             "image" : self.get_numpy_image(image, shape),
-            "label" : self.get_numpy_image(label, shape, is_label=True),
-            "output" : self.get_numpy_image(output, shape, is_label=True),
+            "output" : self.get_numpy_image(outputs, shape, is_label=True),
+            "label" : self.get_numpy_image(labels, shape, is_label=True),
         }
     
     def log(self, k, v, step=None):
