@@ -14,7 +14,7 @@ class AttentionDiffUNet(nn.Module):
                   spatial_dims: int = 3,
                   in_channels: int = 3, 
                   out_channels: int = 1,
-                  features: Sequence[int] = [64, 128, 256, 512, 1024],
+                  features: Sequence[int] = [32, 64, 128, 256, 512], # [64, 128, 256, 512, 1024],
                   dropout: float = 0.2,
                   timesteps: int = 1000,
                   mode: str = "train"):
@@ -92,7 +92,7 @@ class AttentionDiffUNet(nn.Module):
             if self.mode == "train":
                 res.append(sample_out["pred_xstart"].to(image.device))
             elif self.mode == "test":
-                sample_return = torch.zeros_like((1, self.num_classes, *image.shape[2:])).to(image.device)
+                sample_return = torch.zeros((1, self.num_classes, *image.shape[2:])).to(image.device)
                 all_samples = sample_out["all_samples"]
                 
                 for sample in all_samples:

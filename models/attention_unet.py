@@ -337,6 +337,7 @@ class AttentionUNetDecoder(nn.Module):
             
         features.reverse()
         self.up = nn.ModuleList()
+        # print()
         
         for i in range(len(features[:-1])):
             # print(f"{features[i]}, {features[i+1]}")
@@ -344,7 +345,7 @@ class AttentionUNetDecoder(nn.Module):
                 spatial_dims=spatial_dims, 
                 in_channels=features[i], 
                 cat_channels=features[i+1], 
-                out_channels=features[i+1], 
+                out_channels=features[i+1] if features[i] != features[i+1] else features[i]*2, 
                 act=act,
                 norm=norm,
                 bias=bias,
@@ -354,11 +355,7 @@ class AttentionUNetDecoder(nn.Module):
         self.out = nn.Conv3d(features[-1], out_channels, kernel_size=kernel_size, stride=stride, padding=0)
         
     def forward(self, x: torch.Tensor, t: torch.Tensor, embeddings: List[torch.Tensor], image: torch.Tensor) -> torch.Tensor:
-        temb = get_timestep_embedding(t, 128)
-        temb = self.temb.dense[0](temb)
-        temb = nonlinearity(temb)
-        temb = self.temb.dense[1](temb)
-        
+        temb = self.time_embed(t)
         x = torch.cat([image, x], dim=1)
         
         # downsampling
@@ -371,6 +368,12 @@ class AttentionUNetDecoder(nn.Module):
         x = self.upsample(_x, temb)
         
         return self.out(x)
+    
+    def time_embed(self, t: torch.Tensor) -> torch.Tensor:
+        temb = get_timestep_embedding(t, 128)
+        temb = self.temb.dense[0](temb)
+        temb = nonlinearity(temb)
+        return self.temb.dense[1](temb)
     
     def downsample(self, x: torch.Tensor, embeddings: List[torch.Tensor]) -> List[torch.Tensor]:
         _x = [self.head(x) + embeddings[0]]
