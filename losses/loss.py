@@ -23,6 +23,7 @@ from monai.losses import (
 from .utils import dist_map_transform
 
 class Loss:
+    
     def __init__(self, 
                  losses: Sequence[str], 
                  num_classes: int, 
@@ -37,34 +38,28 @@ class Loss:
         self.dist_transform = dist_map_transform()
         self.dist_matrix = torch.ones(num_classes, num_classes, dtype=torch.float32)
         
+        loss_types = {
+            "mse": MSELoss(),
+            "ce": CrossEntropyLoss(),
+            "bce": BCEWithLogitsLoss(),
+            "dice": DiceLoss(sigmoid=True),
+            "focal": FocalLoss(),
+            "boundary": BoundaryLoss(num_classes, one_hot),
+            "dice_ce": DiceCELoss(sigmoid=True),
+            "dice_focal": DiceFocalLoss(sigmoid=True),
+            "multi_neighbor": MultiNeighborLoss(num_classes=num_classes),
+            "hausdorff_er": HausdorffERLoss(num_classes=num_classes),
+            "generalized_dice": GeneralizedDiceLoss(sigmoid=True),
+            "generalized_dice_focal": GeneralizedDiceFocalLoss(),
+            "generalized_wasserstein_dice": GeneralizedWassersteinDiceLoss(self.dist_matrix),
+        }
+        
         for name in losses.split(','):
-            if name == "mse":
-                self.losses.append(MSELoss())
-            elif name == "ce":
-                self.losses.append(CrossEntropyLoss())
-            elif name == "bce":
-                self.losses.append(BCEWithLogitsLoss())
-            elif name == "dice":
-                self.losses.append(DiceLoss(sigmoid=True))
-            elif name == "focal":
-                self.losses.append(FocalLoss())
-            elif name == "boundary":
-               self.losses.append(BoundaryLoss(num_classes, one_hot))
-            elif name == "dice_ce":
-                self.losses.append(DiceCELoss(sigmoid=True))
-            elif name == "dice_focal":
-                self.losses.append(DiceFocalLoss(sigmoid=True))
-            elif name == "multi_neighbor":
-               self.losses.append(MultiNeighborLoss(num_classes=num_classes))
-            elif name == "hausdorff_er":
-                self.losses.append(HausdorffERLoss(num_classes=num_classes))
-            elif name == "generalized_dice":
-               self.losses.append(GeneralizedDiceLoss(sigmoid=True))
-            elif name == "generalized_dice_focal":
-                self.losses.append(GeneralizedDiceFocalLoss())
-            elif name == "generalized_wasserstein_dice":
-                self.losses.append(GeneralizedWassersteinDiceLoss(self.dist_matrix))
-
+            if name in loss_types.keys():
+                self.losses.append(loss_types[name])
+            else:
+                raise NotImplementedError(f"Loss ({name}) is not listed yet")
+            
         print(f"loss : {self.losses}")
         
     def __call__(self, preds: torch.Tensor, labels: torch.Tensor):
@@ -245,12 +240,14 @@ class MultiNeighborLoss(_Loss):
                  reduction: str = "mean", 
                  centroid_method: str = "mean"):
         super(MultiNeighborLoss, self).__init__()
+        assert num_classes > 2, "Neighbours should be more than 2"
+        
         self.num_classes = num_classes
         self.reduction = reduction
         self.centroid_method = centroid_method
         self.max_count = self.num_classes * (self.num_classes - 1) // 2
         
-    def forward(self, probs: torch.Tensor, labels: torch.Tensor):
+    def forward(self, probs: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
         assert probs.ndim == labels.ndim == 5, "The dimensions of probs and labels should be same and 5."
         
         delta = []
@@ -259,9 +256,8 @@ class MultiNeighborLoss(_Loss):
             delta.append(torch.square(p_angles - l_angles))
         
         delta = torch.cat(delta)
-        not_nans = ~torch.isnan(delta)
-        delta = delta[not_nans]
-        delta = delta[delta > 0]
+        valid_mask = ~torch.isnan(delta) & (delta > 0)
+        delta = delta[valid_mask]
         
         if self.reduction == "mean":
             return torch.mean(delta)
@@ -275,7 +271,7 @@ class MultiNeighborLoss(_Loss):
         
         for i in range(self.num_classes):
             z, y, x = torch.where(t == i)
-            centroids[i] = torch.stack(self.compute_centroids(x, y, z))
+            centroids[i] = self.compute_centroids(x, y, z)
         
         idx = 0
         for i in range(self.num_classes):
@@ -287,16 +283,14 @@ class MultiNeighborLoss(_Loss):
         for i in range(self.max_count):
             m = vectors[i]
             for j in range(i+1, self.max_count):
-                n = vectors[j]
-                angle = torch.acos(torch.dot(m, n) / (torch.norm(m) * torch.norm(n)))
-                angles[idx] = angle
+                angles[idx] = torch.acos(torch.dot(m, vectors[j]) / (torch.norm(m) * torch.norm(vectors[j])))
                 idx += 1
                 
         return angles
     
     def compute_centroids(self, x: torch.Tensor, y: torch.Tensor, z: torch.Tensor):
         if self.centroid_method == "mean":
-            return [torch.mean(x.float()), torch.mean(y.float()), torch.mean(z.float())]
+            return torch.stack([torch.mean(x.float()), torch.mean(y.float()), torch.mean(z.float())])
         else:
             raise NotImplementedError(f"The centroid method is not supported. : {self.centroid_method}")
                     
