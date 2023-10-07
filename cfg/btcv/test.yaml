@@ -1,14 +1,17 @@
-model_name: swin_unetr # smooth_diff_unet  # "diff_unet"
-data_name: amos
+model_name: diff_unet # swin_unetr / diff_unet / smooth_diff_unet / attention_unet / attention_diff_unet
+data_name: btcv
+data_path: /home/song99/ws/datasets/BTCV
+sw_batch_size: 4
+overlap: 0.8
 image_size: 96
 spatial_size: 96
-classes: cfg/amos/classes.yaml
+classes: cfg/btcv/classes.yaml
 device: cuda:0
-model_path: logs/swin-unetr-amos/weights/epoch_4000.pt
+model_path: logs/diff-unet-btcv-29/weights/epoch_1750.pt
 project_name: swin-unetr-test
 wandb_name: swin-unetr-amos
-remove_bg: true
+include_background: false
 use_wandb: false  # true
 use_cache: false
-use_amp: false  # true
+use_amp: true  # true
 epoch: null

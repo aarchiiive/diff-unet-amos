@@ -1,29 +1,31 @@
-model_name: diff_unet # swin_unetr # diff_unet # smooth_diff_unet # attention_unet
+model_name: diff_unet # swin_unetr / diff_unet / smooth_diff_unet / attention_unet / attention_diff_unet
 data_name: msd # "msd"
 data_path: /home/song99/ws/datasets/MSD
 image_size: 96
 spatial_size: 96
-lr: 5e-4
-weight_decay: 1e-3
+lr: 2e-4
+weight_decay: 1e-4
 scheduler: true
 warmup_epochs: 100
 timesteps: 1000
-classes: cfg/btcv/classes.yaml
-device: cuda:4
-model_path: null # logs/swin-unetr-amos/weights/epoch_3500.pt # resume 
+classes: cfg/msd/classes.yaml
+device: cuda:0
+model_path: null # logs/diff-unet-btcv-31/weights/epoch_200.pt # resume 
 pretrained_path: pretrained/basic_unet/encoder.pt # pretrained/swin_unetr/model_swinvit.pt
-max_epochs: 30000
-val_freq: 25
-save_freq: 250
-batch_size: 1
-num_workers: 10
-device_ids: null # 0,1,2,3,4
+max_epochs: 5000
+val_freq: 250
+save_freq: 100
+batch_size: 10
+sw_batch_size: 2
+overlap: 0.25
+num_workers: 2
+device_ids: 0,1,2,3,4
 project_name: diff-unet-main
 wandb_name: null
 log_dir: diff-unet-msd-1
-losses: mse,bce,focal,generalized_dice # e.g ce,mse,bce,dice,focal,boundary,dice_ce,dice_focal,generalized_dice,multi_neighbor,hausdorff_er
+losses: mse,bce,dice,focal # ,multi_neighbor # e.g ce,mse,bce,dice,focal,boundary,dice_ce,dice_focal,generalized_dice,multi_neighbor,hausdorff_er,generalized_wasserstein_dice
 loss_combine: sum # sum / mean / log
 include_background: false
 use_wandb: true  # false
-use_amp: false  # true
+use_amp: true  # true
 use_cache: false  # true
