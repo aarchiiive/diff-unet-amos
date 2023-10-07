@@ -1,5 +1,6 @@
 import os
 import wandb
+import pickle
 import warnings
 
 from tqdm import tqdm
@@ -59,6 +60,9 @@ class Tester(Engine):
         )
         self.epoch = epoch
         self.model = self.load_model()
+        self.log_dir = os.path.dirname(os.path.dirname(model_path))
+        self.dices = []
+        
         self.load_checkpoint(model_path)
         self.set_dataloader()    
         
@@ -99,6 +103,8 @@ class Tester(Engine):
 
         print("="*100)
         print(f"results : {np.mean(dices):.4f}")
+        
+        self.save_score()
     
     def validation_step(self, batch):
         with torch.cuda.amp.autocast(self.use_amp):
@@ -112,9 +118,7 @@ class Tester(Engine):
         ious = OrderedDict({v : 0 for v in self.class_names.values()})
         
         classes = list(self.class_names.values())
-        # output = torch.argmax(output)
-        # label = torch.argmax(label)
-        dices = []
+        
         for i in range(self.num_classes):
             output = outputs[:, i]
             label = labels[:, i]
@@ -124,62 +128,21 @@ class Tester(Engine):
             elif output.sum() > 0 and label.sum() == 0:
                 dice = 1
             
+            self.dice_metric.reset()
+            
+            dices[classes[i]] = dice
             print(f"{classes[i]} : {dice:.4f}")
-            dices.append(dice)
-        self.dice_metric.reset()
-        print(f"mean dice : {np.mean(dices):.4f}")
-        
-        return np.mean(dices)
-        
-        # dice = self.dice_metric(output, label)
-        # print(dice)
-        # print(torch.mean(dice))
-        # for i in range(self.num_classes):
-        #     pred = output[..., i].unsqueeze(0)
-        #     gt = label[..., i].unsqueeze(0)
             
-        #     if torch.sum(pred) > 0 and torch.sum(gt) > 0:
-        #         # dice = dc(pred, gt)
-        #         dice = self.dice_metric(pred, gt)[0, 1]
-        #         # hd = hd95(pred, gt)
-        #         # iou = iou_score(pred, gt)
-        #     elif torch.sum(pred) > 0 and torch.sum(gt) == 0:
-        #         dice = 1
-        #         hd = 0
-        #         iou = 1
-        #     else:
-        #         dice = 0
-        #         hd = 0
-        #         iou = 0
-            
-        #     if self.remove_bg: i += 1
-            
-        #     dices[self.class_names[i]] = dice
-        #     # hds[self.class_names[i]] = hd
-        #     # ious[self.class_names[i]] = iou
-            
-        #     table = PrettyTable()
-        #     table.title = self.class_names[i]
-        #     table.field_names = ["metric", "score"]
-        #     table.add_row(["dice", f"{dice:.4f}"])
-        #     # table.add_row(["hd95", f"{hd:.4f}"])
-        #     # table.add_row(["iou", f"{iou:.4f}"])
-        #     print(table)
+        self.dices.append(dices)
+        mean_dice = np.mean(list(dices.values()))
+        print(f"mean dice : {mean_dice:.4f}")
         
-        # mean_dice = sum(dices.values()) / self.num_classes
-        # # mean_hd95 = sum(hds.values()) / self.num_classes
-        # # mean_iou = sum(ious.values()) / self.num_classes
+        return mean_dice
         
-        # print(f"mean_dice : {mean_dice:.4f}")
-        # print(f"mean_hd95 : {mean_hd95:.4f}")
-        # print(f"mean_iou : {mean_iou:.4f}")
-        
-        # if self.use_wandb:
-        #     self.log_plot(vis_data, mean_dice, mean_hd95, mean_iou, dices, filename)
-        #     self.log("mean_dice", mean_dice)
-        #     self.log("mean_hd95", mean_hd95)
-        #     self.log("mean_iou", mean_iou)
-        
+    def save_score(self):
+        with open(os.path.join(self.log_dir, 'dices.pkl'), 'wb') as file:
+            pickle.dump(self.dices, file)
+
       
 
 if __name__ == "__main__":

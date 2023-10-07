@@ -242,15 +242,15 @@ class Trainer(Engine):
         for i in range(self.num_classes):
             output = outputs[:, i]
             label = labels[:, i]
-            if output.sum() > 0 and label.sum() > 0:
+            if output.sum() > 0 and label.sum() == 0:
+                dice = torch.Tensor([1.0]).to(outputs.device)
+            else:
                 self.dice_metric(output, label)
                 dice = self.dice_metric.aggregate()
-            elif output.sum() > 0 and label.sum() == 0:
-                dice = torch.Tensor([1.0]).to(outputs.device)
-            
+                
             dices.append(dice)
-            
-        self.dice_metric.reset()
+            self.dice_metric.reset()
+        
         return torch.mean(torch.stack(dices))
     
     def validation_end(self, dices, epoch):
