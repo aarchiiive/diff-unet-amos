@@ -1,4 +1,4 @@
-from typing import Sequence, Tuple
+from typing import Sequence, Tuple, Dict
 
 import os
 import wandb
@@ -22,28 +22,28 @@ from utils import model_hub, get_model_type, get_class_names
 class Engine:
     def __init__(
         self,
-        model_name="diff_unet", 
-        data_name="amos",
-        data_path=None,
-        batch_size=1,
-        sw_batch_size=4,
-        overlap=0.25,
-        image_size=256,
-        spatial_size=96,
-        timesteps=1000,
-        classes=None,
-        device="cpu",
-        num_workers=2,
-        losses="mse,cse,dice",
-        loss_combine='sum',
-        model_path=None,
-        project_name=None,
-        wandb_name=None,
-        include_background=False,
-        use_amp=True,
-        use_cache=True,
-        use_wandb=True,
-        mode="train",
+        model_name: str = "diff_unet", 
+        data_name: str = "amos",
+        data_path: str = None,
+        batch_size: int = 1,
+        sw_batch_size: int = 4,
+        overlap: float = 0.25,
+        image_size: int = 256,
+        spatial_size: int = 96,
+        timesteps: int = 1000,
+        classes: str = None,
+        device: str = "cpu",
+        num_workers: int = 2,
+        losses: str = "mse,cse,dice",
+        loss_combine: str = 'sum',
+        model_path: str = None,
+        project_name: str = None,
+        wandb_name: str = None,
+        include_background: bool = False,
+        use_amp: bool = True,
+        use_cache: bool = True,
+        use_wandb: bool = True,
+        mode: str = "train",
     ):
         self.model_name = model_name
         self.model_type = get_model_type(model_name)
@@ -74,12 +74,10 @@ class Engine:
         self.best_mean_dice = 0
         self.loss = 0
         
-        print(f"number of classes : {self.num_classes}")
+        log_msg = f"number of classes : {self.num_classes} "
+        log_msg += "(including background)" if include_background else "(excluding background)"
         
-        if isinstance(image_size, tuple):
-            width, height = image_size
-        elif isinstance(image_size, int):
-            width = height = image_size
+        print(log_msg)
         
         if use_wandb and mode == "test":
             self.table = None # reserved
@@ -93,16 +91,6 @@ class Engine:
             
         self.scaler = torch.cuda.amp.GradScaler()
         self.tensor2pil = transforms.ToPILImage()
-        # self.dice_metric = DiceHelper(include_background=True, # self.include_background, 
-        #                               get_not_nans=False,
-        #                               num_classes=self.num_classes,
-        #                               reduction="none",
-        #                               ignore_empty=True) # False
-        # self.dice_metric = DiceHelper(include_background=True, # self.include_background, 
-        #                               get_not_nans=False,
-        #                               reduction="mean",
-        #                               sigmoid=True,
-        #                               ignore_empty=True) # False
         self.dice_metric = DiceMetric(include_background=True, reduction="mean", get_not_nans=False)
     
     def load_checkpoint(self, model_path: str):
@@ -160,7 +148,6 @@ class Engine:
 
     def convert_labels(self, labels: torch.Tensor):
         if self.one_hot:
-            # print(torch.unique(labels, return_counts=True))
             new_labels = [labels == i for i in sorted(self.class_names.keys())]
             return torch.cat(new_labels, dim=1) 
         else:
@@ -169,7 +156,6 @@ class Engine:
     def infer(self, batch) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         image, labels = self.get_input(batch)    
         imgsz = (self.spatial_size, self.image_size, self.image_size)
-        # reserved_device = torch.device("cuda:1")
         
         if self.model_type == ModelType.Diffusion:
             if isinstance(self.model, nn.DataParallel):
@@ -181,14 +167,12 @@ class Engine:
         
         outputs = torch.sigmoid(outputs)
         outputs = (outputs > 0.5).float()
-        # print(output.shape)
-        # print(torch.unique(torch.argmax(output, dim=1), return_counts=True))
         
         return image, outputs, labels
     
     def get_numpy_image(self, t: torch.Tensor, shape: tuple, is_label: bool = False):
         _, _, d, w, h = shape
-        index = int(d * 0.75)
+        index = int(d * 0.75) # to be customed
         if is_label: t = torch.argmax(t, dim=1)
         else: t = t.squeeze(0) * 255
         t = t[:, index, ...].to(torch.uint8)
@@ -218,7 +202,6 @@ class Engine:
     def log_per_class(self, dice, hd95, step):
         if self.use_wandb:
             pass
-            # wandb.log()
             
     def log_plot(self, 
                  vis_data: dict, 
