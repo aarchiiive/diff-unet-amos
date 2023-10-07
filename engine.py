@@ -111,7 +111,6 @@ class Engine:
     def load_model(self):
         return model_hub(
             model_name=self.model_name, 
-            spatial_size=self.spatial_size,
             timesteps=self.timesteps,
             num_classes=self.num_classes,
             mode=self.mode).to(self.device)
