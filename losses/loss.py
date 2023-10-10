@@ -23,7 +23,6 @@ from monai.losses import (
 from .utils import dist_map_transform
 
 class Loss:
-    
     def __init__(self, 
                  losses: Sequence[str], 
                  num_classes: int, 
@@ -135,7 +134,6 @@ class BoundaryLoss(_Loss):
 
 class HausdorffDTLoss(nn.Module):
     """Binary Hausdorff loss based on distance transform"""
-    
     def __init__(self, alpha=2.0):
         super(HausdorffDTLoss, self).__init__()
         self.alpha = alpha
@@ -174,7 +172,6 @@ class HausdorffDTLoss(nn.Module):
 
 class HausdorffERLoss(_Loss):
     """Binary Hausdorff loss based on morphological erosion"""
-
     def __init__(self, 
                  num_classes: int, 
                  alpha: float = 2.0, 
@@ -240,7 +237,7 @@ class MultiNeighborLoss(_Loss):
                  reduction: str = "mean", 
                  centroid_method: str = "mean"):
         super(MultiNeighborLoss, self).__init__()
-        assert num_classes > 2, "Neighbours should be more than 2"
+        # assert num_classes > 2, "Neighbours should be more than 2"
         
         self.num_classes = num_classes
         self.reduction = reduction

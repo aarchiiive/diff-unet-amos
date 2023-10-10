@@ -46,7 +46,7 @@ class DiffUNet(nn.Module):
                 image: torch.Tensor = None, 
                 x: torch.Tensor = None, 
                 pred_type: str = None, 
-                step=None):
+                step: torch.Tensor = None):
         if image is not None and x is not None: assert image.device == x.device
         
         if pred_type == "q_sample":

@@ -19,8 +19,8 @@ from monai.data import (
 from dataset.amos_dataset import AMOSDataset
 from dataset.msd_dataset import MSDDataset
 from dataset.btcv_dataset import BTCVDataset
-from models.model_hub import ModelHub
-from models.model_type import ModelType
+from models.utils.model_hub import ModelHub
+from models.utils.model_type import ModelType
 
 
 def model_hub(model_name: str, **kwargs):

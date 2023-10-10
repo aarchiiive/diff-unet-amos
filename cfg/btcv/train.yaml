@@ -10,7 +10,7 @@ warmup_epochs: 100
 timesteps: 1000
 classes: cfg/btcv/classes.yaml
 device: cuda:0
-model_path: null # logs/diff-unet-btcv-31/weights/epoch_200.pt # resume 
+model_path: logs/diff-unet-btcv-32/weights/epoch_2600.pt # resume 
 pretrained_path: pretrained/basic_unet/encoder.pt # pretrained/swin_unetr/model_swinvit.pt
 max_epochs: 5000
 val_freq: 100
@@ -27,5 +27,5 @@ losses: mse,bce,dice,multi_neighbor # e.g ce,mse,bce,dice,focal,boundary,dice_ce
 loss_combine: sum # sum / mean / log
 include_background: false
 use_wandb: true  # false
-use_amp: true  # true
+use_amp: false  # true
 use_cache: false  # true

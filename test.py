@@ -128,12 +128,14 @@ class Tester(Engine):
             elif output.sum() > 0 and label.sum() == 0:
                 dice = 1
             
-            self.dice_metric.reset()
+            
             
             dices[classes[i]] = dice
             print(f"{classes[i]} : {dice:.4f}")
-            
+        
+        self.dice_metric.reset()
         self.dices.append(dices)
+        
         mean_dice = np.mean(list(dices.values()))
         print(f"mean dice : {mean_dice:.4f}")
         

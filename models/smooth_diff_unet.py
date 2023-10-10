@@ -91,12 +91,14 @@ class SmoothUNetEncoder(BasicUNetEncoder):
         
         self.smoothing = smoothing
         self.smooth = [SmoothLayer(features[0], d, w, h)]
-        self.ffparser = [FFParser(features[0], d, w, h)]
+        # self.ffparser = [FFParser(features[0], d, w, h)]
+        
         for i, f in enumerate(features[1:4]):
             self.smooth.append(SmoothLayer(f, d // (2**(i+1)), w // (2**(i+1)), h // (2**(i+1))))
-            self.ffparser.append(FFParser(f, d // (2**(i+1)), w // (2**(i+1)), h // (2**(i+1))))
+            # self.ffparser.append(FFParser(f, d // (2**(i+1)), w // (2**(i+1)), h // (2**(i+1))))
+            
         self.smooth = nn.ModuleList(self.smooth)
-        self.ffparser = nn.ModuleList(self.ffparser)
+        # self.ffparser = nn.ModuleList(self.ffparser)
         self.down = nn.ModuleList([self.down_1,
                                    self.down_2,
                                    self.down_3,
@@ -107,8 +109,8 @@ class SmoothUNetEncoder(BasicUNetEncoder):
         
         for i in range(4):
             s = self.smooth[i](_x[i])
-            w = self.ffparser[i](s)
-            _x.append(self.down[i](s * w))
+            # w = self.ffparser[i](s)
+            _x.append(self.down[i](s))
         
         return _x
 
@@ -120,16 +122,12 @@ class SmoothUNetDecoder(BasicUNetDecoder):
         in_channels: int = 1,
         out_channels: int = 2,
         features: Sequence[int] = (32, 32, 64, 128, 256, 32),
-        image_size: int = 256,
-        spatial_size: int = 96,
         act: Union[str, tuple] = ("LeakyReLU", {"negative_slope": 0.1, "inplace": True}),
-        norm: Union[str, tuple] = ("instance", {"affine": True}),
+        norm: Union[str, tuple] = ("layer", {"affine": True}),
         bias: bool = True,
         dropout: Union[float, tuple] = 0.0,
         upsample: str = "deconv",
         dimensions: Optional[int] = None,
-        ndims: int = 5, 
-        p: int = 1,
         smoothing: bool = True,
     ):
         super().__init__(
@@ -150,34 +148,19 @@ class SmoothUNetDecoder(BasicUNetDecoder):
                                     self.upcat_2,
                                     self.upcat_1])
         
-    def forward(self, x: torch.Tensor, t, embeddings=None, image=None):
+    def forward(self, x: torch.Tensor, t: torch.Tensor, embeddings: torch.Tensor = None, image: torch.Tensor = None):
         t_emb = get_timestep_embedding(t, 128)
         t_emb = self.temb.dense[0](t_emb)
         t_emb = nonlinearity(t_emb)
         t_emb = self.temb.dense[1](t_emb)
 
-        if image is not None:
-            x = torch.cat([image, x], dim=1)
+        x = torch.cat([image, x], dim=1)
             
-        x0 = self.conv_0(x, t_emb)
-        if embeddings is not None:
-            x0 += embeddings[0]
-
-        x1 = self.down_1(x0, t_emb)
-        if embeddings is not None:
-            x1 += embeddings[1]
-
-        x2 = self.down_2(x1, t_emb)
-        if embeddings is not None:
-            x2 += embeddings[2]
-
-        x3 = self.down_3(x2, t_emb)
-        if embeddings is not None:
-            x3 += embeddings[3]
-
-        x4 = self.down_4(x3, t_emb)
-        if embeddings is not None:
-            x4 += embeddings[4]
+        x0 = self.conv_0(x, t_emb) + embeddings[0]
+        x1 = self.down_1(x0, t_emb) + embeddings[1]
+        x2 = self.down_2(x1, t_emb) + embeddings[2]
+        x3 = self.down_3(x2, t_emb) + embeddings[3]
+        x4 = self.down_4(x3, t_emb) + embeddings[4]
         
         u4 = self.upcat[0](x4, x3, t_emb)
         u3 = self.upcat[1](u4, x2, t_emb)

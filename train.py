@@ -14,7 +14,7 @@ from monai.transforms import AsDiscrete
 from light_training.utils.lr_scheduler import LinearWarmupCosineAnnealingLR
 
 from engine import Engine
-from models.model_type import ModelType
+from models.utils.model_type import ModelType
 from utils import parse_args, get_dataloader
 
 set_determinism(123)
@@ -96,6 +96,7 @@ class Trainer(Engine):
         self.wandb_id = None
         self.weights_path = os.path.join(self.log_dir, "weights")
         self.auto_optim = True
+        self.resume = model_path is not None
         
         os.makedirs(self.log_dir, exist_ok=True)
         os.makedirs(self.weights_path, exist_ok=True)
@@ -159,8 +160,8 @@ class Trainer(Engine):
     
     def train(self):
         set_determinism(1234 + self.local_rank)
-        print(f"check model parameter: {next(self.model.parameters()).sum():.4f}")
         para = sum([np.prod(list(p.size())) for p in self.model.parameters()])
+        print(f"check model parameter: {next(self.model.parameters()).sum():.4f}")
         print(f"model parameters is {para * 4 / 1000 / 1000:.2f}M ")
         
         os.makedirs(self.log_dir, exist_ok=True)
@@ -204,13 +205,16 @@ class Trainer(Engine):
                     loss.backward()
                     self.optimizer.step()
                 
+                if torch.isnan(loss).item():
+                    raise Exception("Training stopped due to the loss being NaN")
+                
                 running_loss += loss.item()
                 t.update(1)
                 
             if self.scheduler is not None: self.scheduler.step()
             
             self.loss = running_loss / len(self.dataloader["train"])
-            self.log("loss", self.loss, step=epoch)
+            self.log("loss", self.loss, step=epoch, resume=self.resume)
                     
         if (epoch + 1) % self.save_freq == 0:
             self.save_model(model=self.model,
@@ -249,7 +253,8 @@ class Trainer(Engine):
                 dice = self.dice_metric.aggregate()
                 
             dices.append(dice)
-            self.dice_metric.reset()
+            
+        self.dice_metric.reset()
         
         return torch.mean(torch.stack(dices))
     
@@ -266,7 +271,7 @@ class Trainer(Engine):
                                 save_path=os.path.join(self.weights_path, f"best_{mean_dice:.4f}.pt"))
 
         print(f"mean_dice : {mean_dice:.4f}")
-        self.log("mean_dice", mean_dice.item(), epoch)
+        self.log("mean_dice", mean_dice.item(), epoch, resume=self.resume)
 
 if __name__ == "__main__":
     args = parse_args()

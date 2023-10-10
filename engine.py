@@ -9,13 +9,10 @@ import torch
 import torch.nn as nn
 from torchvision import transforms
 
-from monai.data import DataLoader
 from monai.inferers import SlidingWindowInferer, sliding_window_inference
-from monai.metrics import DiceMetric, DiceHelper
-from monai.transforms import AsDiscrete
+from monai.metrics import DiceMetric
 
-from dataset.base_dataset import BaseDataset
-from models.model_type import ModelType
+from models.utils.model_type import ModelType
 from losses.loss import Loss
 from utils import model_hub, get_model_type, get_class_names
 
@@ -195,9 +192,9 @@ class Engine:
             "label" : self.get_numpy_image(labels, shape, is_label=True),
         }
     
-    def log(self, k, v, step=None):
+    def log(self, k, v, step=None, resume=False):
         if self.use_wandb:
-            wandb.log({k: v}, step=step if step is not None else self.global_step)
+            wandb.log({k: v}, step=step if step is not None else self.global_step, commit=resume)
             
     def log_per_class(self, dice, hd95, step):
         if self.use_wandb:
