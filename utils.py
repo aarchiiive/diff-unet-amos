@@ -80,7 +80,7 @@ def get_dataloader(
                 roi_scale=[0.75, 0.85, 1.0],
                 random_size=False
             ),
-            # transforms.Resized(keys=["image", "label"], spatial_size=(spatial_size*2, image_size*2, image_size*2)),
+            transforms.Resized(keys=["image", "label"], spatial_size=(spatial_size*2, image_size*2, image_size*2)),
             transforms.RandCropByPosNegLabeld(
                 keys=["image", "label"],
                 label_key="label",

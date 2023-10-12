@@ -30,14 +30,14 @@ class DiffUNet(nn.Module):
                                          betas=betas,
                                          model_mean_type=ModelMeanType.START_X,
                                          model_var_type=ModelVarType.FIXED_LARGE,
-                                         loss_type=LossType.MSE,
+                                         loss_type=LossType.RESCALED_KL,
                                          )
 
         self.sample_diffusion = SpacedDiffusion(use_timesteps=space_timesteps(timesteps, [10]),
                                                 betas=betas,
                                                 model_mean_type=ModelMeanType.START_X,
                                                 model_var_type=ModelVarType.FIXED_LARGE,
-                                                loss_type=LossType.MSE,
+                                                loss_type=LossType.RESCALED_KL,
                                                 )
         self.sampler = UniformSampler(timesteps)
         

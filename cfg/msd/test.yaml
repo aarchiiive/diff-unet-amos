@@ -1,15 +1,15 @@
 model_name: diff_unet # swin_unetr / diff_unet / smooth_diff_unet / attention_unet / attention_diff_unet
-data_name: msd
+data_name: btcv
 data_path: /home/song99/ws/datasets/MSD
 sw_batch_size: 4
 overlap: 0.8
 image_size: 96
 spatial_size: 96
 classes: cfg/msd/classes.yaml
-device: cuda:1
+device: cuda:0
 model_path: logs/diff-unet-msd-1/weights/epoch_500.pt
-project_name: swin-unetr-test
-wandb_name: swin-unetr-amos
+project_name: diff-unet-test
+wandb_name: diff-unet-msd-1
 include_background: false
 use_wandb: false  # true
 use_cache: false

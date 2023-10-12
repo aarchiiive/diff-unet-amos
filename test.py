@@ -61,6 +61,7 @@ class Tester(Engine):
         self.epoch = epoch
         self.model = self.load_model()
         self.log_dir = os.path.dirname(os.path.dirname(model_path))
+        self.save_name = os.path.basename(model_path).split(".")[0]
         self.dices = []
         
         self.load_checkpoint(model_path)
@@ -122,27 +123,24 @@ class Tester(Engine):
         for i in range(self.num_classes):
             output = outputs[:, i]
             label = labels[:, i]
-            if output.sum() > 0 and label.sum() > 0:
+            if output.sum() > 0 and label.sum() == 0:
+                dice = 1
+            else:
                 self.dice_metric(output, label)
                 dice = self.dice_metric.aggregate().item()
-            elif output.sum() > 0 and label.sum() == 0:
-                dice = 1
-            
-            
             
             dices[classes[i]] = dice
             print(f"{classes[i]} : {dice:.4f}")
-        
+
         self.dice_metric.reset()
         self.dices.append(dices)
-        
         mean_dice = np.mean(list(dices.values()))
         print(f"mean dice : {mean_dice:.4f}")
         
         return mean_dice
         
     def save_score(self):
-        with open(os.path.join(self.log_dir, 'dices.pkl'), 'wb') as file:
+        with open(os.path.join(self.log_dir, f'dice_{self.save_name}.pkl'), 'wb') as file:
             pickle.dump(self.dices, file)
 
       

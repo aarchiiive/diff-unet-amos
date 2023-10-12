@@ -259,8 +259,7 @@ class Trainer(Engine):
         return torch.mean(torch.stack(dices))
     
     def validation_end(self, dices, epoch):
-        dices = torch.stack(dices)
-        mean_dice = torch.mean(dices)
+        mean_dice = torch.mean(torch.stack(dices)).item()
         if mean_dice > self.best_mean_dice:
             self.best_mean_dice = mean_dice
             if mean_dice > 0.5:
@@ -271,7 +270,7 @@ class Trainer(Engine):
                                 save_path=os.path.join(self.weights_path, f"best_{mean_dice:.4f}.pt"))
 
         print(f"mean_dice : {mean_dice:.4f}")
-        self.log("mean_dice", mean_dice.item(), epoch, resume=self.resume)
+        self.log("mean_dice", mean_dice, epoch, resume=self.resume)
 
 if __name__ == "__main__":
     args = parse_args()
