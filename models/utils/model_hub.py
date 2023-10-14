@@ -2,7 +2,7 @@ from typing import Any, Tuple
 
 from models.diff_unet import DiffUNet
 from models.smooth_diff_unet import SmoothDiffUNet
-from models.swin_unetr import SwinUNETR
+from models.swin_unetr.swin_unetr import SwinUNETR
 # from models.attention_unet import AttentionUNet
 from models.attention_diff_unet import AttentionDiffUNet
 

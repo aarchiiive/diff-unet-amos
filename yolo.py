@@ -131,7 +131,7 @@ if __name__ == "__main__":
             while True:
                 ret, frame = cap.read()
                 if not ret: break
-                output: Sequence[Results] = model(frame)
+                output: Sequence[Results] = model(frame, conf=0.5)
                 output: Results = output[0]
                 output = Visual(
                     orig_img=output.orig_img,

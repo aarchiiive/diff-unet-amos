@@ -5,10 +5,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from models.diff_unet import DiffUNet
-from layers.ffparser import FFParser
-from layers.basic_unet import BasicUNetEncoder
-from layers.basic_unet_denoise import get_timestep_embedding, nonlinearity, BasicUNetDecoder
 
+from .layers import FFParser
+from .basic_unet import BasicUNetEncoder, get_timestep_embedding, nonlinearity, BasicUNetDecoder
 
 class SmoothLayer(nn.Module):
     def __init__(self, 

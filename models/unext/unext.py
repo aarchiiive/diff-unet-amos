@@ -28,9 +28,9 @@ class Conv(nn.Module):
         self.layer = conv_type(
             in_channels=in_channels,
             out_channels=out_channels,
-            kernel_size=kernel_size
+            kernel_size=kernel_size,
+            
         )
-        
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.layer(x)
@@ -54,7 +54,6 @@ class DoubleConv(nn.Module):
 
     def forward(self, x):
         return self.double_conv(x)
-
 
 
 class UNext(nn.Module):
