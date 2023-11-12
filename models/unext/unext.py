@@ -1,11 +1,7 @@
 import torch
 import torch.nn as nn
 
-"""
-[Code References]
-https://github.com/milesial/Pytorch-UNet/tree/master
-
-"""
+from monai.networks.nets import BasicUNet
 
 
 class Conv(nn.Module):

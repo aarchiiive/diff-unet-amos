@@ -24,8 +24,6 @@ from monai.utils import deprecated_arg, ensure_tuple_rep
 from .utils import mask_func
 from .utils import get_mask_labels, get_mask_labelsv2
 
-__all__ = ["BasicUnet", "Basicunet", "basicunet", "BasicUNet"]
-
 
 class TwoConv(nn.Sequential):
     """two convolutions."""

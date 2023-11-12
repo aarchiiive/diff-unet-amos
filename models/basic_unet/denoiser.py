@@ -10,46 +10,19 @@
 # limitations under the License.
 
 from typing import Optional, Sequence, Union
-import math 
+
 import torch
 import torch.nn as nn
 
 from monai.networks.blocks import Convolution, UpSample
 from monai.networks.layers.factories import Conv, Pool
-from monai.utils import deprecated_arg, ensure_tuple_rep
+from monai.utils import ensure_tuple_rep
 
-__all__ = ["BasicUnet", "Basicunet", "basicunet", "BasicUNet"]
-
-def get_timestep_embedding(timesteps, embedding_dim):
-    """
-    This matches the implementation in Denoising Diffusion Probabilistic Models:
-    From Fairseq.
-    Build sinusoidal embeddings.
-    This matches the implementation in tensor2tensor, but differs slightly
-    from the description in Section 3.5 of "Attention Is All You Need".
-    """
-    assert len(timesteps.shape) == 1
-
-    half_dim = embedding_dim // 2
-    emb = math.log(10000) / (half_dim - 1)
-    emb = torch.exp(torch.arange(half_dim, dtype=torch.float32) * -emb)
-    emb = emb.to(device=timesteps.device)
-    emb = timesteps.float()[:, None] * emb[None, :]
-    emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1)
-    if embedding_dim % 2 == 1:  # zero pad
-        emb = torch.nn.functional.pad(emb, (0, 1, 0, 0))
-    return emb
-
-
-def nonlinearity(x):
-    # swish
-    return x*torch.sigmoid(x)
-
+from ..diffusion import get_timestep_embedding, nonlinearity, TimeStepEmbedder
 
 class TwoConv(nn.Sequential):
     """two convolutions."""
 
-    # @deprecated_arg(name="dim", new_name="spatial_dims", since="0.6", msg_suffix="Please use `spatial_dims` instead.")
     def __init__(
         self,
         spatial_dims: int,
@@ -92,11 +65,11 @@ class TwoConv(nn.Sequential):
         x = x + self.temb_proj(nonlinearity(temb))[:, :, None, None, None]
         x = self.conv_1(x)
         return x 
+ 
 
 class Down(nn.Sequential):
     """maxpooling downsampling and two convolutions."""
 
-    # @deprecated_arg(name="dim", new_name="spatial_dims", since="0.6", msg_suffix="Please use `spatial_dims` instead.")
     def __init__(
         self,
         spatial_dims: int,
@@ -137,7 +110,6 @@ class Down(nn.Sequential):
 class UpCat(nn.Module):
     """upsampling, concatenation with the encoder feature map, two convolutions"""
 
-    # @deprecated_arg(name="dim", new_name="spatial_dims", since="0.6", msg_suffix="Please use `spatial_dims` instead.")
     def __init__(
         self,
         spatial_dims: int,
@@ -220,9 +192,8 @@ class UpCat(nn.Module):
             x = self.convs(x_0, temb)
 
         return x
-
-
-class BasicUNetDecoder(nn.Module):
+       
+class BasicUNetRDenoiser(nn.Module):
     # @deprecated_arg(
     #     name="dimensions", new_name="spatial_dims", since="0.6", msg_suffix="Please use `spatial_dims` instead."
     # )
@@ -295,13 +266,7 @@ class BasicUNetDecoder(nn.Module):
         # print(f"BasicUNet features: {fea}.")
         
         # timestep embedding
-        self.temb = nn.Module()
-        self.temb.dense = nn.ModuleList([
-            torch.nn.Linear(128,
-                            512),
-            torch.nn.Linear(512,
-                            512),
-        ])
+        self.temb = TimeStepEmbedder()
 
         self.conv_0 = TwoConv(spatial_dims, in_channels, features[0], act, norm, bias, dropout)
         self.down_1 = Down(spatial_dims, fea[0], fea[1], act, norm, bias, dropout)
@@ -316,7 +281,7 @@ class BasicUNetDecoder(nn.Module):
 
         self.final_conv = Conv["conv", spatial_dims](fea[5], out_channels, kernel_size=1)
 
-    def forward(self, x: torch.Tensor, t, embeddings=None, image=None):
+    def forward(self, x: torch.Tensor, t: torch.Tensor, image: torch.Tensor = None, embeddings: torch.Tensor = None):
         """
         Args:
             x: input should have spatially N dimensions
@@ -328,32 +293,15 @@ class BasicUNetDecoder(nn.Module):
             A torch Tensor of "raw" predictions in shape
             ``(Batch, out_channels, dim_0[, dim_1, ..., dim_N])``.
         """
-        temb = get_timestep_embedding(t, 128)
-        temb = self.temb.dense[0](temb)
-        temb = nonlinearity(temb)
-        temb = self.temb.dense[1](temb)
+        temb = self.temb(t)
 
         x = torch.cat([image, x], dim=1)
             
-        x0 = self.conv_0(x, temb)
-        if embeddings is not None:
-            x0 += embeddings[0]
-
-        x1 = self.down_1(x0, temb)
-        if embeddings is not None:
-            x1 += embeddings[1]
-
-        x2 = self.down_2(x1, temb)
-        if embeddings is not None:
-            x2 += embeddings[2]
-
-        x3 = self.down_3(x2, temb)
-        if embeddings is not None:
-            x3 += embeddings[3]
-
-        x4 = self.down_4(x3, temb)
-        if embeddings is not None:
-            x4 += embeddings[4]
+        x0 = self.conv_0(x, temb) + embeddings[0]
+        x1 = self.down_1(x0, temb) + embeddings[1]
+        x2 = self.down_2(x1, temb) + embeddings[2]
+        x3 = self.down_3(x2, temb) + embeddings[3]
+        x4 = self.down_4(x3, temb) + embeddings[4]
 
         u4 = self.upcat_4(x4, x3, temb)
         u3 = self.upcat_3(u4, x2, temb)

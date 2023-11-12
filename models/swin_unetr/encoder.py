@@ -24,7 +24,7 @@ class SwinUNETREncoder(nn.Module):
 
     def __init__(
         self,
-        img_size: Sequence[int] | int,
+        image_size: Sequence[int] | int,
         in_channels: int,
         depths: Sequence[int] = (2, 2, 2, 2),
         num_heads: Sequence[int] = (3, 6, 12, 24),
@@ -41,7 +41,7 @@ class SwinUNETREncoder(nn.Module):
     ) -> None:
         """
         Args:
-            img_size: dimension of input image.
+            image_size: dimension of input image.
             in_channels: dimension of input channels.
             out_channels: dimension of output channels.
             feature_size: dimension of network feature size.
@@ -62,29 +62,29 @@ class SwinUNETREncoder(nn.Module):
         Examples::
 
             # for 3D single channel input with size (96,96,96), 4-channel output and feature size of 48.
-            >>> net = SwinUNETR(img_size=(96,96,96), in_channels=1, out_channels=4, feature_size=48)
+            >>> net = SwinUNETR(image_size=(96,96,96), in_channels=1, out_channels=4, feature_size=48)
 
             # for 3D 4-channel input with size (128,128,128), 3-channel output and (2,4,2,2) layers in each stage.
-            >>> net = SwinUNETR(img_size=(128,128,128), in_channels=4, out_channels=3, depths=(2,4,2,2))
+            >>> net = SwinUNETR(image_size=(128,128,128), in_channels=4, out_channels=3, depths=(2,4,2,2))
 
             # for 2D single channel input with size (96,96), 2-channel output and gradient checkpointing.
-            >>> net = SwinUNETR(img_size=(96,96), in_channels=3, out_channels=2, use_checkpoint=True, spatial_dims=2)
+            >>> net = SwinUNETR(image_size=(96,96), in_channels=3, out_channels=2, use_checkpoint=True, spatial_dims=2)
 
         """
 
         super().__init__()
 
-        img_size = ensure_tuple_rep(img_size, spatial_dims)
+        image_size = ensure_tuple_rep(image_size, spatial_dims)
         patch_size = ensure_tuple_rep(2, spatial_dims)
         window_size = ensure_tuple_rep(7, spatial_dims)
 
         if spatial_dims not in (2, 3):
             raise ValueError("spatial dimension should be 2 or 3.")
 
-        for m, p in zip(img_size, patch_size):
+        for m, p in zip(image_size, patch_size):
             for i in range(5):
                 if m % np.power(p, i + 1) != 0:
-                    raise ValueError("input image size (img_size) should be divisible by stage-wise image resolution.")
+                    raise ValueError("input image size (image_size) should be divisible by stage-wise image resolution.")
 
         if not (0 <= drop_rate <= 1):
             raise ValueError("dropout rate should be between 0 and 1.")
@@ -214,4 +214,5 @@ class SwinUNETREncoder(nn.Module):
         enc1 = self.encoder2(hidden_states_out[0])
         enc2 = self.encoder3(hidden_states_out[1])
         enc3 = self.encoder4(hidden_states_out[2])
+        
         return [enc0, enc1, enc2, enc3]

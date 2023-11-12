@@ -14,12 +14,12 @@ from typing import Optional, Sequence, Union
 import torch
 import torch.nn as nn
 
-from monai.networks.layers.factories import Conv
 from monai.utils import ensure_tuple_rep
 
-from .layers import TwoConv, Down, UpCat
+from .layers import TwoConv, Down
 
-class BasicUNet(nn.Module):
+
+class BasicUNetEncoder(nn.Module):
     # @deprecated_arg(
     #     name="dimensions", new_name="spatial_dims", since="0.6", msg_suffix="Please use `spatial_dims` instead."
     # )
@@ -28,7 +28,7 @@ class BasicUNet(nn.Module):
         spatial_dims: int = 3,
         in_channels: int = 1,
         out_channels: int = 2,
-        features: Sequence[int] = (32, 32, 64, 128, 256, 32),
+        features: Sequence[int] = (64, 64, 128, 256, 512, 64),
         act: Union[str, tuple] = ("LeakyReLU", {"negative_slope": 0.1, "inplace": True}),
         norm: Union[str, tuple] = ("instance", {"affine": True}),
         bias: bool = True,
@@ -97,13 +97,6 @@ class BasicUNet(nn.Module):
         self.down_3 = Down(spatial_dims, fea[2], fea[3], act, norm, bias, dropout)
         self.down_4 = Down(spatial_dims, fea[3], fea[4], act, norm, bias, dropout)
 
-        self.upcat_4 = UpCat(spatial_dims, fea[4], fea[3], fea[3], act, norm, bias, dropout, upsample)
-        self.upcat_3 = UpCat(spatial_dims, fea[3], fea[2], fea[2], act, norm, bias, dropout, upsample)
-        self.upcat_2 = UpCat(spatial_dims, fea[2], fea[1], fea[1], act, norm, bias, dropout, upsample)
-        self.upcat_1 = UpCat(spatial_dims, fea[1], fea[0], fea[5], act, norm, bias, dropout, upsample, halves=False)
-
-        self.final_conv = Conv["conv", spatial_dims](fea[5], out_channels, kernel_size=1)
-
     def forward(self, x: torch.Tensor):
         """
         Args:
@@ -116,31 +109,13 @@ class BasicUNet(nn.Module):
             A torch Tensor of "raw" predictions in shape
             ``(Batch, out_channels, dim_0[, dim_1, ..., dim_N])``.
         """
-        embeddings = []
-
+            
         x0 = self.conv_0(x)
-        embeddings.append(x0)
-
         x1 = self.down_1(x0)
-        embeddings.append(x1)
-
         x2 = self.down_2(x1)
-        embeddings.append(x2)
-
         x3 = self.down_3(x2)
-        embeddings.append(x3)
-
         x4 = self.down_4(x3)
-        embeddings.append(x4)
 
-        u4 = self.upcat_4(x4, x3)
-        u3 = self.upcat_3(u4, x2)
-        u2 = self.upcat_2(u3, x1)
-        u1 = self.upcat_1(u2, x0)
-
-        logits = self.final_conv(u1)
-        return logits, embeddings
-
-
-BasicUnet = Basicunet = basicunet = BasicUNet
+        return [x0, x1, x2, x3, x4]
+        
 

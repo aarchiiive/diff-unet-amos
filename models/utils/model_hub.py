@@ -1,8 +1,10 @@
 from typing import Any, Tuple
 
+from monai.networks.nets.swin_unetr import SwinUNETR
+
 from models.diff_unet import DiffUNet
 from models.smooth_diff_unet import SmoothDiffUNet
-from models.swin_unetr.swin_unetr import SwinUNETR
+from models.swin_diff_unetr import SwinDiffUNETR
 # from models.attention_unet import AttentionUNet
 from models.attention_diff_unet import AttentionDiffUNet
 
@@ -15,19 +17,23 @@ class ModelHub:
             model = DiffUNet(**kwargs)
         elif model_name == "smooth_diff_unet":
             model = SmoothDiffUNet(**kwargs)
+        elif model_name == "attention_diff_unet":
+            model = AttentionDiffUNet(**kwargs)
+        elif model_name == "swin_diff_unetr":
+            model = SwinDiffUNETR(image_size=self.parse_image_size(**kwargs),
+                                    in_channels=kwargs['in_channels'],
+                                    out_channels=kwargs['out_channels'],
+                                    noise_ratio=kwargs['noise_ratio'],
+                                    feature_size=48)
         elif model_name == "swin_unetr":
             model = SwinUNETR(img_size=self.parse_image_size(**kwargs),
-                              in_channels=1,
-                              out_channels=kwargs['num_classes'],
+                              in_channels=kwargs['in_channels'],
+                              out_channels=kwargs['out_channels'],
                               feature_size=48)
         # elif model_name == "attention_unet":
         #     model = AttentionUNet(in_channels=1,
         #                           out_channels=kwargs['num_classes'])
-        elif model_name == "attention_diff_unet":
-            model = AttentionDiffUNet(in_channels=1,
-                                      out_channels=kwargs['num_classes'],
-                                      timesteps=kwargs["timesteps"],
-                                      mode=kwargs["mode"])
+        
         else:
             raise ValueError(f"Invalid model type: {model_name}")
         

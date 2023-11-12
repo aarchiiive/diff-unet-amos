@@ -27,6 +27,7 @@ class Engine:
         overlap: float = 0.25,
         image_size: int = 256,
         spatial_size: int = 96,
+        noise_ratio: float = 0.5,
         timesteps: int = 1000,
         classes: str = None,
         device: str = "cpu",
@@ -49,6 +50,7 @@ class Engine:
         self.batch_size = batch_size
         self.sw_batch_size = sw_batch_size
         self.overlap = float(overlap)
+        self.noise_ratio = noise_ratio
         self.image_size = image_size
         self.spatial_size = spatial_size
         self.timesteps = timesteps
@@ -77,7 +79,8 @@ class Engine:
         print(log_msg)
         
         if use_wandb and mode == "test":
-            self.table = None # reserved
+            self.table = None 
+            # reserved
         
         if self.mode == "train":
             self.criterion = Loss(self.losses, 
@@ -97,8 +100,13 @@ class Engine:
         return model_hub(
             model_name=self.model_name, 
             timesteps=self.timesteps,
-            num_classes=self.num_classes,
-            mode=self.mode).to(self.device)
+            in_channels=1,
+            out_channels=self.num_classes,
+            image_size=self.image_size,
+            spatial_size=self.spatial_size,
+            noise_ratio=self.noise_ratio,
+            mode=self.mode
+        ).to(self.device)
     
     def save_model(
         self,

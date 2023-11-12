@@ -13,20 +13,48 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+import math
 import numpy as np
+
 import torch
 import torch.nn as nn
 
-from monai.networks.blocks import UnetOutBlock, UnetrBasicBlock, UnetrUpBlock
+# from timm.models.vision_transformer import PatchEmbed
+
+# from monai.networks.blocks import UnetOutBlock, UnetrBasicBlock, UnetrUpBlock
 from monai.utils import ensure_tuple_rep, look_up_option, optional_import
 
+from .patch_embed import PatchEmbed
+# from .embedders import LabelEmbedder, TimestepEmbedder
+from .blocks import UnetOutBlock, UnetrUpBlock, UnetrBasicBlock
 from .patch import MERGING_MODE
 from .transformer import SwinTransformer
+from ..diffusion import get_timestep_embedding, nonlinearity, TimeStepEmbedder
 
 rearrange, _ = optional_import("einops", name="rearrange")
 
 
-class SwinUNETRDecoder(nn.Module):
+def get_timestep_embedding(timesteps, embedding_dim):
+    """
+    This matches the implementation in Denoising Diffusion Probabilistic Models:
+    From Fairseq.
+    Build sinusoidal embeddings.
+    This matches the implementation in tensor2tensor, but differs slightly
+    from the description in Section 3.5 of "Attention Is All You Need".
+    """
+    assert len(timesteps.shape) == 1
+
+    half_dim = embedding_dim // 2
+    emb = math.log(10000) / (half_dim - 1)
+    emb = torch.exp(torch.arange(half_dim, dtype=torch.float32) * -emb)
+    emb = emb.to(device=timesteps.device)
+    emb = timesteps.float()[:, None] * emb[None, :]
+    emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1)
+    if embedding_dim % 2 == 1:  # zero pad
+        emb = torch.nn.functional.pad(emb, (0, 1, 0, 0))
+    return emb
+    
+class SwinUNETRDenoiser(nn.Module):
     """
     Swin UNETR based on: "Hatamizadeh et al.,
     Swin UNETR: Swin Transformers for Semantic Segmentation of Brain Tumors in MRI Images
@@ -35,15 +63,19 @@ class SwinUNETRDecoder(nn.Module):
 
     def __init__(
         self,
-        img_size: Sequence[int] | int,
+        image_size: Sequence[int] | int,
         in_channels: int,
         out_channels: int,
+        embedding_size: int = 512,
         depths: Sequence[int] = (2, 2, 2, 2),
         num_heads: Sequence[int] = (3, 6, 12, 24),
         feature_size: int = 24,
         norm_name: tuple | str = "instance",
         drop_rate: float = 0.0,
         attn_drop_rate: float = 0.0,
+        mask_ratio: float = None,
+        noise_ratio: float = 0.5,
+        embedding_dim: int = 128,
         dropout_path_rate: float = 0.0,
         normalize: bool = True,
         use_checkpoint: bool = False,
@@ -53,7 +85,7 @@ class SwinUNETRDecoder(nn.Module):
     ) -> None:
         """
         Args:
-            img_size: dimension of input image.
+            image_size: dimension of input image.
             in_channels: dimension of input channels.
             out_channels: dimension of output channels.
             feature_size: dimension of network feature size.
@@ -74,29 +106,29 @@ class SwinUNETRDecoder(nn.Module):
         Examples::
 
             # for 3D single channel input with size (96,96,96), 4-channel output and feature size of 48.
-            >>> net = SwinUNETR(img_size=(96,96,96), in_channels=1, out_channels=4, feature_size=48)
+            >>> net = SwinUNETR(image_size=(96,96,96), in_channels=1, out_channels=4, feature_size=48)
 
             # for 3D 4-channel input with size (128,128,128), 3-channel output and (2,4,2,2) layers in each stage.
-            >>> net = SwinUNETR(img_size=(128,128,128), in_channels=4, out_channels=3, depths=(2,4,2,2))
+            >>> net = SwinUNETR(image_size=(128,128,128), in_channels=4, out_channels=3, depths=(2,4,2,2))
 
             # for 2D single channel input with size (96,96), 2-channel output and gradient checkpointing.
-            >>> net = SwinUNETR(img_size=(96,96), in_channels=3, out_channels=2, use_checkpoint=True, spatial_dims=2)
+            >>> net = SwinUNETR(image_size=(96,96), in_channels=3, out_channels=2, use_checkpoint=True, spatial_dims=2)
 
         """
 
         super().__init__()
 
-        img_size = ensure_tuple_rep(img_size, spatial_dims)
+        image_size = ensure_tuple_rep(image_size, spatial_dims)
         patch_size = ensure_tuple_rep(2, spatial_dims)
         window_size = ensure_tuple_rep(7, spatial_dims)
 
         if spatial_dims not in (2, 3):
             raise ValueError("spatial dimension should be 2 or 3.")
 
-        for m, p in zip(img_size, patch_size):
+        for m, p in zip(image_size, patch_size):
             for i in range(5):
                 if m % np.power(p, i + 1) != 0:
-                    raise ValueError("input image size (img_size) should be divisible by stage-wise image resolution.")
+                    raise ValueError("input image size (image_size) should be divisible by stage-wise image resolution.")
 
         if not (0 <= drop_rate <= 1):
             raise ValueError("dropout rate should be between 0 and 1.")
@@ -111,6 +143,10 @@ class SwinUNETRDecoder(nn.Module):
             raise ValueError("feature_size should be divisible by 12.")
 
         self.normalize = normalize
+        
+        # timesteps & noise
+        self.noise_ratio = noise_ratio
+        self.t_embedder = TimeStepEmbedder(embedding_dim)
 
         self.swinViT = SwinTransformer(
             in_chans=in_channels,
@@ -135,6 +171,7 @@ class SwinUNETRDecoder(nn.Module):
             spatial_dims=spatial_dims,
             in_channels=in_channels,
             out_channels=feature_size,
+            embedding_size=embedding_size,
             kernel_size=3,
             stride=1,
             norm_name=norm_name,
@@ -145,6 +182,7 @@ class SwinUNETRDecoder(nn.Module):
             spatial_dims=spatial_dims,
             in_channels=feature_size,
             out_channels=feature_size,
+            embedding_size=embedding_size,
             kernel_size=3,
             stride=1,
             norm_name=norm_name,
@@ -155,6 +193,7 @@ class SwinUNETRDecoder(nn.Module):
             spatial_dims=spatial_dims,
             in_channels=2 * feature_size,
             out_channels=2 * feature_size,
+            embedding_size=embedding_size,
             kernel_size=3,
             stride=1,
             norm_name=norm_name,
@@ -165,6 +204,7 @@ class SwinUNETRDecoder(nn.Module):
             spatial_dims=spatial_dims,
             in_channels=4 * feature_size,
             out_channels=4 * feature_size,
+            embedding_size=embedding_size,
             kernel_size=3,
             stride=1,
             norm_name=norm_name,
@@ -175,6 +215,7 @@ class SwinUNETRDecoder(nn.Module):
             spatial_dims=spatial_dims,
             in_channels=16 * feature_size,
             out_channels=16 * feature_size,
+            embedding_size=embedding_size,
             kernel_size=3,
             stride=1,
             norm_name=norm_name,
@@ -185,6 +226,7 @@ class SwinUNETRDecoder(nn.Module):
             spatial_dims=spatial_dims,
             in_channels=16 * feature_size,
             out_channels=8 * feature_size,
+            embedding_size=embedding_size,
             kernel_size=3,
             upsample_kernel_size=2,
             norm_name=norm_name,
@@ -195,6 +237,7 @@ class SwinUNETRDecoder(nn.Module):
             spatial_dims=spatial_dims,
             in_channels=feature_size * 8,
             out_channels=feature_size * 4,
+            embedding_size=embedding_size,
             kernel_size=3,
             upsample_kernel_size=2,
             norm_name=norm_name,
@@ -205,6 +248,7 @@ class SwinUNETRDecoder(nn.Module):
             spatial_dims=spatial_dims,
             in_channels=feature_size * 4,
             out_channels=feature_size * 2,
+            embedding_size=embedding_size,
             kernel_size=3,
             upsample_kernel_size=2,
             norm_name=norm_name,
@@ -214,6 +258,7 @@ class SwinUNETRDecoder(nn.Module):
             spatial_dims=spatial_dims,
             in_channels=feature_size * 2,
             out_channels=feature_size,
+            embedding_size=embedding_size,
             kernel_size=3,
             upsample_kernel_size=2,
             norm_name=norm_name,
@@ -224,6 +269,7 @@ class SwinUNETRDecoder(nn.Module):
             spatial_dims=spatial_dims,
             in_channels=feature_size,
             out_channels=feature_size,
+            embedding_size=embedding_size,
             kernel_size=3,
             upsample_kernel_size=2,
             norm_name=norm_name,
@@ -280,18 +326,31 @@ class SwinUNETRDecoder(nn.Module):
             self.swinViT.layers4[0].downsample.norm.bias.copy_(
                 weights["state_dict"]["module.layers4.0.downsample.norm.bias"]
             )
-
-    def forward(self, x_in):
-        hidden_states_out = self.swinViT(x_in, self.normalize)
-        enc0 = self.encoder1(x_in)
-        enc1 = self.encoder2(hidden_states_out[0])
-        enc2 = self.encoder3(hidden_states_out[1])
-        enc3 = self.encoder4(hidden_states_out[2])
-        dec4 = self.encoder10(hidden_states_out[4])
-        dec3 = self.decoder5(dec4, hidden_states_out[3])
-        dec2 = self.decoder4(dec3, enc3)
-        dec1 = self.decoder3(dec2, enc2)
-        dec0 = self.decoder2(dec1, enc1)
-        out = self.decoder1(dec0, enc0)
+    
+    def forward(
+        self, 
+        x: torch.Tensor, 
+        t: torch.Tensor, 
+        image: torch.Tensor = None,
+        embeddings: torch.Tensor = None, 
+    ):
+        t = self.t_embedder(t)
+        x = image + x * self.noise_ratio # add some noise
+        
+        hidden_states_out = self.swinViT(x, self.normalize) # + embeddings[0]
+        
+        enc0 = self.encoder1(x, t) + embeddings[0]
+        enc1 = self.encoder2(hidden_states_out[0], t) + embeddings[1]
+        enc2 = self.encoder3(hidden_states_out[1], t) + embeddings[2]
+        enc3 = self.encoder4(hidden_states_out[2], t) + embeddings[3]
+        
+        dec4 = self.encoder10(hidden_states_out[4], t)
+        dec3 = self.decoder5(dec4, hidden_states_out[3], t)
+        dec2 = self.decoder4(dec3, enc3, t)
+        dec1 = self.decoder3(dec2, enc2, t)
+        dec0 = self.decoder2(dec1, enc1, t)
+        
+        out = self.decoder1(dec0, enc0, t)
         logits = self.out(out)
+        
         return logits

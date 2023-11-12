@@ -10,7 +10,6 @@ from monai.networks.blocks import Convolution, UpSample
 from monai.utils import ensure_tuple_rep
 
 
-
 class Conv(nn.Module):
     def __init__(
         self,
@@ -97,25 +96,6 @@ class Down(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.down(x)
     
-# class UpCat(nn.Module):
-#     def __init__(
-#         self,
-#         spatial_dims: int,
-#         in_chns: int,
-#         cat_chns: int,
-#         out_chns: int,
-#         act: str | tuple,
-#         norm: str | tuple,
-#         bias: bool,
-#         dropout: float | tuple = 0.0,
-#         upsample: str = "deconv",
-#         pre_conv: nn.Module | str | None = "default",
-#         interp_mode: str = "linear",
-#         align_corners: bool | None = True,
-#         halves: bool = True,
-#         is_pad: bool = True,
-#     ):
-
 class BasicUNet(nn.Module):
     def __init__(
         self,

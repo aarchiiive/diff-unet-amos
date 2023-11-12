@@ -9,6 +9,8 @@ from torch.nn import init
 
 from monai.networks.blocks import Convolution
 
+from ..diffusion import get_timestep_embedding, nonlinearity, TimeStepEmbedder
+
 """
 
 [References] 
@@ -16,30 +18,6 @@ https://github.com/LeeJunHyun/Image_Segmentation/blob/master/network.py
 https://github.com/Project-MONAI/MONAI/blob/dev/monai/networks/nets/attentionunet.py
 
 """
-
-def get_timestep_embedding(timesteps, embedding_dim):
-    """
-    This matches the implementation in Denoising Diffusion Probabilistic Models:
-    From Fairseq.
-    Build sinusoidal embeddings.
-    This matches the implementation in tensor2tensor, but differs slightly
-    from the description in Section 3.5 of "Attention Is All You Need".
-    """
-    assert len(timesteps.shape) == 1
-
-    half_dim = embedding_dim // 2
-    emb = math.log(10000) / (half_dim - 1)
-    emb = torch.exp(torch.arange(half_dim, dtype=torch.float32) * -emb)
-    emb = emb.to(device=timesteps.device)
-    emb = timesteps.float()[:, None] * emb[None, :]
-    emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1)
-    if embedding_dim % 2 == 1:  # zero pad
-        emb = torch.nn.functional.pad(emb, (0, 1, 0, 0))
-    return emb
-
-def nonlinearity(x):
-    # swish
-    return x*torch.sigmoid(x)
 
 def conv_bn(spatial_dims: int) -> Sequence[nn.Module]:
     if spatial_dims == 2:
@@ -195,17 +173,6 @@ class AttentionUNet(nn.Module):
     
     
 """ Attention-UNet using timesteps """
-
-class TimeStepEmbedder(nn.Module):
-    def __init__(self) -> None:
-        super().__init__()
-        self.dense = nn.ModuleList([
-            torch.nn.Linear(128, 512),
-            torch.nn.Linear(512, 512),
-        ])
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.dense(x)
 
 class TwoConv(nn.Sequential):
     """two convolutions."""
@@ -390,10 +357,3 @@ class AttentionUNetDecoder(nn.Module):
             x = self.up[i](_x[i], _x[i+1], temb) if x is None else self.up[i](x, _x[i+1], temb)
         
         return x
-
-
-if __name__ == "__main__":
-    model = AttentionUNet(in_channels=1, out_channels=13)
-    print(model)
-    x = torch.randn((4, 1, 96, 96, 96))
-    print(model(x).shape)
