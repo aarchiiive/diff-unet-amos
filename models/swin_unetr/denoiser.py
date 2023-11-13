@@ -337,7 +337,7 @@ class SwinUNETRDenoiser(nn.Module):
         t = self.t_embedder(t)
         x = image + x * self.noise_ratio # add some noise
         
-        hidden_states_out = self.swinViT(x, self.normalize) # + embeddings[0]
+        hidden_states_out = self.swinViT(x, self.normalize)
         
         enc0 = self.encoder1(x, t) + embeddings[0]
         enc1 = self.encoder2(hidden_states_out[0], t) + embeddings[1]

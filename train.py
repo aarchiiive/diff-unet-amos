@@ -15,6 +15,7 @@ from light_training.utils.lr_scheduler import LinearWarmupCosineAnnealingLR
 
 from engine import Engine
 from models.utils.model_type import ModelType
+from models.diffusion import Diffusion
 from utils import parse_args, get_dataloader
 
 set_determinism(123)
@@ -146,7 +147,7 @@ class Trainer(Engine):
         print(f"Checkpoint loaded from {model_path}")
         
     def load_pretrained_weights(self, pretrained_path):
-        if self.model_type == ModelType.Diffusion:
+        if self.model_type == ModelType.Diffusion and isinstance(self.model, Diffusion):
             self.model.embed_model.load_state_dict(torch.load(pretrained_path, map_location="cpu"))
         elif self.model_type == ModelType.SwinUNETR:
             self.model.load_from(weights=torch.load(pretrained_path, map_location="cpu"))
