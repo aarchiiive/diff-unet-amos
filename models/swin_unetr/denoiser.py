@@ -337,8 +337,8 @@ class SwinUNETRDenoiser(nn.Module):
         embeddings: Any = None, # possible to include list of tensors
     ):
         t = self.t_embedder(t)
-        x = image + x * self.noise_ratio # add some noise
-        # x = torch.cat([image, x], dim=1)
+        # x = image + x * self.noise_ratio # add some noise
+        x = torch.cat([image, x], dim=1)
         
         hidden_states_out = self.swinViT(x, t, self.normalize)
         
