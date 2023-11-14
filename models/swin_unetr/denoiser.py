@@ -342,8 +342,8 @@ class SwinUNETRDenoiser(nn.Module):
         
         hidden_states_out = self.swinViT(x, t, self.normalize)
         
-        for i in range(len(hidden_states_out)):
-            hidden_states_out[i] = hidden_states_out[i] + embeddings[0][i]
+        # for i in range(len(hidden_states_out)):
+        #     hidden_states_out[i] = hidden_states_out[i] + embeddings[0][i]
         
         enc0 = self.encoder1(x, t) + embeddings[1]
         enc1 = self.encoder2(hidden_states_out[0], t) + embeddings[2]
