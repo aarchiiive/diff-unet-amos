@@ -16,6 +16,7 @@ from light_training.utils.lr_scheduler import LinearWarmupCosineAnnealingLR
 from engine import Engine
 from models.utils.model_type import ModelType
 from models.diffusion import Diffusion
+from models import SwinDiffUNETR
 from utils import parse_args, get_dataloader
 
 set_determinism(123)
@@ -139,6 +140,7 @@ class Trainer(Engine):
             if state_dict[k] is not None:
                 getattr(self, k).load_state_dict(state_dict[k])
         self.start_epoch = state_dict['epoch']
+        self.noise_ratio = state_dict['noise_ratio']
         self.project_name = state_dict['project_name']
         self.global_step = state_dict['global_step']
         self.best_mean_dice = state_dict['best_mean_dice']
@@ -148,10 +150,15 @@ class Trainer(Engine):
         
     def load_pretrained_weights(self, pretrained_path):
         if self.model_type == ModelType.Diffusion and isinstance(self.model, Diffusion):
-            self.model.embed_model.load_state_dict(torch.load(pretrained_path, map_location="cpu"))
+            if isinstance(self.model, SwinDiffUNETR) and os.path.basename(pretrained_path) == 'swinvit.pt': 
+                self.model.embed_model.swinViT.load_state_dict(torch.load(pretrained_path, map_location="cpu"))
+                print(f"Load pretrained weights from {pretrained_path} to swinViT layer")
+            else:
+                self.model.embed_model.load_state_dict(torch.load(pretrained_path, map_location="cpu"))
+                print(f"Load pretrained weights from {pretrained_path}")
         elif self.model_type == ModelType.SwinUNETR:
             self.model.load_from(weights=torch.load(pretrained_path, map_location="cpu"))
-        print(f"Load pretrained weights from {pretrained_path}")
+            print(f"Load pretrained weights from {pretrained_path}")
             
     def set_dataloader(self):
         self.dataloader = get_dataloader(data_path=self.data_path,

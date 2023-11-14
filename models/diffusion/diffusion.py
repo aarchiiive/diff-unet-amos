@@ -63,17 +63,10 @@ class Diffusion(nn.Module):
             raise NotImplementedError(f"No such prediction type : {pred_type}")
         
     def q_sample(self, x: torch.Tensor) -> Sequence[torch.Tensor]:
-        _sample, _t, _noise = [], [], []
-        for i in range(len(x)):
-            batch = x[i, ...].unsqueeze(0)
-            noise = torch.randn_like(batch).to(x.device)
-            t, _ = self.sampler.sample(batch.shape[0], batch.device)
-            sample = self.diffusion.q_sample(batch, t, noise)
-            _sample.append(sample)
-            _noise.append(noise)
-            _t.append(t.unsqueeze(0))
-            
-        return torch.cat(_sample, dim=0), torch.cat(_t, dim=0), torch.cat(_noise, dim=0)
+        noise = torch.randn_like(x).to(x.device)
+        t, _ = self.sampler.sample(x.shape[0], x.device)
+        sample = self.diffusion.q_sample(x, t, noise)
+        return sample, t, noise
     
     def denoise(self, image: torch.Tensor, x: torch.Tensor, step: torch.Tensor) -> torch.Tensor:
         """_summary_
@@ -87,14 +80,8 @@ class Diffusion(nn.Module):
             torch.Tensor: _description_
         """
         assert image.size(0) == x.size(0) == step.size(0)
-        res = []
-        for i in range(len(image)):
-            batch = image[i, ...].unsqueeze(0)
-            x_batch = x[i, ...].unsqueeze(0)
-            embeddings = self.embed_model(batch)
-            res.append(self.model(x_batch, t=step[i, ...], embeddings=embeddings, image=batch))
-            
-        return torch.cat(res, dim=0)
+        embeddings = self.embed_model(image)
+        return self.model(x=x, t=step, embeddings=embeddings, image=image)
     
     def ddim_sample(self, image: torch.Tensor) -> torch.Tensor:
         res = []
@@ -104,15 +91,12 @@ class Diffusion(nn.Module):
             sample_out = self.sample_diffusion.ddim_sample_loop(self.model, 
                                                                 (1, self.num_classes, *image.shape[2:]), 
                                                                 model_kwargs={"image": batch, "embeddings": embeddings})
-            if self.mode == "train":
-                res.append(sample_out["pred_xstart"].to(image.device))
-            elif self.mode == "test":
-                sample_return = torch.zeros((1, self.num_classes, *image.shape[2:])).to(image.device)
-                all_samples = sample_out["all_samples"]
-                
-                for sample in all_samples:
-                    sample_return += sample.to(image.device)
+            sample_return = torch.zeros((1, self.num_classes, *image.shape[2:])).to(image.device)
+            all_samples = sample_out["all_samples"]
+            
+            for sample in all_samples:
+                sample_return += sample.to(image.device)
 
-                res.append(sample_return) 
+            res.append(sample_return) 
             
         return torch.cat(res, dim=0)

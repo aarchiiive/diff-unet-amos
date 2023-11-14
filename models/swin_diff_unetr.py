@@ -39,7 +39,7 @@ class SwinDiffUNETR(Diffusion):
         )
         self.model = SwinUNETRDenoiser(
             image_size, 
-            out_channels, 
+            out_channels*2, 
             out_channels, 
             spatial_dims=spatial_dims, 
             feature_size=feature_size,

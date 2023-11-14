@@ -128,6 +128,7 @@ class Engine:
             'scheduler': scheduler.state_dict() if scheduler is not None else None,
             'epoch': epoch+1,
             'loss': self.loss,
+            'noise_ratio': self.noise_ratio,    
             'global_step': self.global_step,
             'best_mean_dice': self.best_mean_dice,
             'project_name': self.project_name,

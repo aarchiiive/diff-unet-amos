@@ -5,25 +5,25 @@ image_size: 96
 spatial_size: 96
 lr: 2e-4
 weight_decay: 1e-4
-noise_ratio: 0.9
+noise_ratio: 0.7
 scheduler: true
 warmup_epochs: 100
 timesteps: 1000
 classes: cfg/btcv/classes.yaml
-device: cuda:3
-model_path: null # logs/diff-unet-btcv-32/weights/epoch_2600.pt # resume 
-pretrained_path: pretrained/swin_unetr/encoder.pt # pretrained/basic_unet/encoder.pt # pretrained/swin_unetr/model_swinvit.pt
+device: cuda:2
+model_path: null # logs/swin-diff-unetr-btcv-5/weights/epoch_150.pt # logs/diff-unet-btcv-32/weights/epoch_2600.pt # resume 
+pretrained_path: pretrained/swin_unetr/swinvit.pt # pretrained/basic_unet/encoder.pt # pretrained/swin_unetr/model_swinvit.pt
 max_epochs: 5000
 val_freq: 100
 save_freq: 50
 batch_size: 1
 sw_batch_size: 2
-overlap: 0.35
+overlap: 0.25
 num_workers: 2
 device_ids: null # 0 # ,1,2,3,4
 project_name: diff-unet-main
 wandb_name: null
-log_dir: swin-diff-unetr-btcv-5
+log_dir: swin-diff-unetr-btcv-6
 losses: mse,bce,dice_focal # ,multi_neighbor # e.g ce,mse,bce,dice,focal,boundary,dice_ce,dice_focal,generalized_dice,multi_neighbor,hausdorff_er,generalized_wasserstein_dice
 loss_combine: sum # sum / mean / log
 include_background: false

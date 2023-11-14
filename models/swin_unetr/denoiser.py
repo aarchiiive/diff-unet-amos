@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from collections.abc import Sequence
 
 import math
@@ -155,6 +156,7 @@ class SwinUNETRDenoiser(nn.Module):
             patch_size=patch_size,
             depths=depths,
             num_heads=num_heads,
+            time_embed_size=embedding_size,
             mlp_ratio=4.0,
             qkv_bias=True,
             drop_rate=drop_rate,
@@ -332,17 +334,21 @@ class SwinUNETRDenoiser(nn.Module):
         x: torch.Tensor, 
         t: torch.Tensor, 
         image: torch.Tensor = None,
-        embeddings: torch.Tensor = None, 
+        embeddings: Any = None, # possible to include list of tensors
     ):
         t = self.t_embedder(t)
         x = image + x * self.noise_ratio # add some noise
+        # x = torch.cat([image, x], dim=1)
         
-        hidden_states_out = self.swinViT(x, self.normalize)
+        hidden_states_out = self.swinViT(x, t, self.normalize)
         
-        enc0 = self.encoder1(x, t) + embeddings[0]
-        enc1 = self.encoder2(hidden_states_out[0], t) + embeddings[1]
-        enc2 = self.encoder3(hidden_states_out[1], t) + embeddings[2]
-        enc3 = self.encoder4(hidden_states_out[2], t) + embeddings[3]
+        for i in range(len(hidden_states_out)):
+            hidden_states_out[i] = hidden_states_out[i] + embeddings[0][i]
+        
+        enc0 = self.encoder1(x, t) + embeddings[1]
+        enc1 = self.encoder2(hidden_states_out[0], t) + embeddings[2]
+        enc2 = self.encoder3(hidden_states_out[1], t) + embeddings[3]
+        enc3 = self.encoder4(hidden_states_out[2], t) + embeddings[4]
         
         dec4 = self.encoder10(hidden_states_out[4], t)
         dec3 = self.decoder5(dec4, hidden_states_out[3], t)

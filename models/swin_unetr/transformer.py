@@ -17,6 +17,7 @@ from monai.utils import look_up_option, optional_import
 
 from .attention import WindowAttention, get_window_size, window_partition, window_reverse, compute_mask
 from .patch import MERGING_MODE
+from ..diffusion import nonlinearity
 
 rearrange, _ = optional_import("einops", name="rearrange")
 
@@ -136,6 +137,7 @@ class SwinTransformer(nn.Module):
         patch_size: Sequence[int],
         depths: Sequence[int],
         num_heads: Sequence[int],
+        time_embed_size: int = 512,
         mlp_ratio: float = 4.0,
         qkv_bias: bool = True,
         drop_rate: float = 0.0,
@@ -186,17 +188,24 @@ class SwinTransformer(nn.Module):
         )
         self.pos_drop = nn.Dropout(p=drop_rate)
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]
+        
         self.use_v2 = use_v2
         self.layers1 = nn.ModuleList()
         self.layers2 = nn.ModuleList()
         self.layers3 = nn.ModuleList()
         self.layers4 = nn.ModuleList()
+        
         if self.use_v2:
             self.layers1c = nn.ModuleList()
             self.layers2c = nn.ModuleList()
             self.layers3c = nn.ModuleList()
             self.layers4c = nn.ModuleList()
+            
         down_sample_mod = look_up_option(downsample, MERGING_MODE) if isinstance(downsample, str) else downsample
+        
+        # timestep projection
+        self.t_proj = nn.ModuleList()
+        
         for i_layer in range(self.num_layers):
             layer = BasicLayer(
                 dim=int(embed_dim * 2**i_layer),
@@ -238,7 +247,10 @@ class SwinTransformer(nn.Module):
                     self.layers3c.append(layerc)
                 elif i_layer == 3:
                     self.layers4c.append(layerc)
+            
+            self.t_proj.append(torch.nn.Linear(time_embed_size, int(embed_dim * 2**i_layer)))
 
+        self.t_proj.append(torch.nn.Linear(time_embed_size, int(embed_dim * 2**self.num_layers))) # final layer of time projection
         self.num_features = int(embed_dim * 2 ** (self.num_layers - 1))
 
     def proj_out(self, x, normalize=False):
@@ -256,30 +268,36 @@ class SwinTransformer(nn.Module):
                 x = rearrange(x, "n h w c -> n c h w")
         return x
 
-    def forward(self, x, normalize=True):
+    def forward(self, x, t, normalize=True):
         x0 = self.patch_embed(x)
         x0 = self.pos_drop(x0)
+        x0 = x0 + self.t_proj[0](nonlinearity(t))[:, :, None, None, None]
         x0_out = self.proj_out(x0, normalize)
         if self.use_v2:
             x0 = self.layers1c[0](x0.contiguous())
+        
         x1 = self.layers1[0](x0.contiguous())
+        x1 = x1 + self.t_proj[1](nonlinearity(t))[:, :, None, None, None]
         x1_out = self.proj_out(x1, normalize)
-        # print("x1_out :", x1_out.shape)
         if self.use_v2:
             x1 = self.layers2c[0](x1.contiguous())
+        
         x2 = self.layers2[0](x1.contiguous())
+        x2 = x2 + self.t_proj[2](nonlinearity(t))[:, :, None, None, None]
         x2_out = self.proj_out(x2, normalize)
-        # print("x2_out :", x2_out.shape)
         if self.use_v2:
             x2 = self.layers3c[0](x2.contiguous())
+        
         x3 = self.layers3[0](x2.contiguous())
+        x3 = x3 + self.t_proj[3](nonlinearity(t))[:, :, None, None, None]
         x3_out = self.proj_out(x3, normalize)
-        # print("x3_out :", x3_out.shape)
         if self.use_v2:
             x3 = self.layers4c[0](x3.contiguous())
+        
         x4 = self.layers4[0](x3.contiguous())
+        x4 = x4 + self.t_proj[4](nonlinearity(t))[:, :, None, None, None]
         x4_out = self.proj_out(x4, normalize)
-        # print("x4_out :", x4_out.shape)
+        
         return [x0_out, x1_out, x2_out, x3_out, x4_out]
 
 

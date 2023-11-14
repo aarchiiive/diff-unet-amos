@@ -7,10 +7,11 @@ import torch
 import torch.nn as nn
 
 from monai.networks.blocks import UnetrBasicBlock
+from monai.networks.nets.swin_unetr import SwinTransformer
 from monai.utils import ensure_tuple_rep, look_up_option, optional_import
 
 from .patch import MERGING_MODE
-from .transformer import SwinTransformer
+# from .transformer import SwinTransformer
 
 rearrange, _ = optional_import("einops", name="rearrange")
 
@@ -215,4 +216,4 @@ class SwinUNETREncoder(nn.Module):
         enc2 = self.encoder3(hidden_states_out[1])
         enc3 = self.encoder4(hidden_states_out[2])
         
-        return [enc0, enc1, enc2, enc3]
+        return [hidden_states_out, enc0, enc1, enc2, enc3]
