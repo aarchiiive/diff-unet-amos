@@ -147,6 +147,12 @@ class SwinUNETRDenoiser(nn.Module):
         # timesteps & noise
         self.noise_ratio = noise_ratio
         self.t_embedder = TimeStepEmbedder(embedding_size)
+        # self.feature_embedder = nn.ModuleList(
+        #     [
+        #         nn.Linear(feature_size, feature_size),
+        #         nn.Linear(feature_size, feature_size),
+        #     ]
+        # )
         
         # if isinstance(image_size, int):
         #     self.pos_embed = nn.Parameter(torch.zeros(1, in_channels, image_size, image_size, image_size))
@@ -300,7 +306,11 @@ class SwinUNETRDenoiser(nn.Module):
         for i in range(len(hidden_states_out)):
             hidden_states_out[i] = hidden_states_out[i] + embeddings[0][i]
         
-        enc0 = self.encoder1(x, t) + embeddings[1]
+        # print(embeddings[1].shape)
+        # print(embeddings[2].shape)
+        # print(embeddings[3].shape)
+        # print(embeddings[4].shape)
+        enc0 = self.encoder1(x, t) + embeddings[1] # [1, 48, 96, 96, 96]
         enc1 = self.encoder2(hidden_states_out[0], t) + embeddings[2] # [1, 48, 48, 48, 48]
         enc2 = self.encoder3(hidden_states_out[1], t) + embeddings[3] # [1, 96, 24, 24, 24]
         enc3 = self.encoder4(hidden_states_out[2], t) + embeddings[4] # [1, 192, 12, 12, 12]
