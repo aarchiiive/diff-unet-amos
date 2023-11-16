@@ -77,7 +77,7 @@ class Tester(Engine):
     def load_checkpoint(self, model_path):
         if self.epoch is not None:
             model_path = os.path.join(os.path.dirname(model_path), f"epoch_{self.epoch}.pt")
-        state_dict = torch.load(model_path)
+        state_dict = torch.load(model_path, map_location="cpu")
         self.model.load_state_dict(state_dict['model'])
             
         print(f"Checkpoint loaded from {model_path}.....")

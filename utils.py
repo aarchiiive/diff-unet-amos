@@ -53,7 +53,7 @@ def get_dataloader(
     data_path: str, 
     image_size: int = 256, 
     spatial_size: int = 96, 
-    num_samples: int = 2, 
+    num_samples: int = 1, 
     num_workers: int = 8,
     batch_size: int = 1,
     cache_rate: float = 1.0,

@@ -235,13 +235,16 @@ class MultiNeighborLoss(_Loss):
     def __init__(self, 
                  num_classes: int, 
                  reduction: str = "mean", 
-                 centroid_method: str = "mean"):
+                 centroid_method: str = "mean",
+                 eps: float = 1e-6
+        ):
         super(MultiNeighborLoss, self).__init__()
         # assert num_classes > 2, "Neighbours should be more than 2"
         
         self.num_classes = num_classes
         self.reduction = reduction
         self.centroid_method = centroid_method
+        self.eps = eps
         self.max_count = self.num_classes * (self.num_classes - 1) // 2
         
     def forward(self, probs: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
@@ -249,41 +252,47 @@ class MultiNeighborLoss(_Loss):
         
         delta = []
         for i in range(probs.size(0)):
-            p_angles, l_angles = self.compute_angles(torch.sigmoid(probs[i, ...])), self.compute_angles(labels[i, ...])
+            l_angles, valid_classes = self.compute_angles(labels[i, ...], is_label=True)
+            p_angles, _ = self.compute_angles(torch.sigmoid(probs[i, ...]), valid_classes)
             delta.append(torch.square(p_angles - l_angles))
         
         delta = torch.cat(delta)
-        valid_mask = ~torch.isnan(delta) & (delta > 0)
-        delta = delta[valid_mask]
         
         if self.reduction == "mean":
             return torch.mean(delta)
-        
-    def compute_angles(self, t: torch.Tensor) -> torch.Tensor:
-        angles = torch.zeros(self.max_count*self.max_count).to(t.device)
-        vectors = torch.zeros(self.max_count, 3).to(t.device)
-        centroids = torch.zeros((self.num_classes, 3)).to(t.device)
-        
-        t = torch.argmax(t, dim=0)
-        
-        for i in range(self.num_classes):
-            z, y, x = torch.where(t == i)
-            centroids[i] = self.compute_centroids(x, y, z)
-        
-        idx = 0
-        for i in range(self.num_classes):
-            for j in range(i+1, self.num_classes):
-                vectors[idx] = centroids[j] - centroids[i]
-                idx += 1
     
-        idx = 0
-        for i in range(self.max_count):
-            m = vectors[i]
-            for j in range(i+1, self.max_count):
-                angles[idx] = torch.acos(torch.dot(m, vectors[j]) / (torch.norm(m) * torch.norm(vectors[j])))
-                idx += 1
-                
-        return angles
+    def compute_angles(self, x: torch.Tensor, valid_classes: torch.Tensor = None, is_label: bool = False) -> torch.Tensor:
+        # angles = torch.zeros(self.max_count, self.max_count, device=t.device)
+        centroids = torch.zeros(self.num_classes, 3, device=x.device)
+        if is_label: valid_classes = torch.zeros(self.num_classes, dtype=torch.bool, device=x.device)
+
+        t = torch.argmax(x, dim=1)
+        
+        for i in range(self.num_classes):
+            indices = torch.nonzero(t == i, as_tuple=True)
+            if indices[0].size(0) > 0:
+                centroids[i] = self.compute_centroids(*indices)
+                if is_label: valid_classes[i] = True
+        
+        centroids = centroids[valid_classes]
+        
+        if centroids.size(0) < 2:
+            return torch.tensor([0], device=x.device, dtype=x.dtype), valid_classes
+        else:
+            # Computing vector differences
+            diff_vectors = centroids.unsqueeze(1) - centroids.unsqueeze(0)
+            
+            # Normalizing vectors to avoid division by zero
+            norms = torch.norm(diff_vectors, dim=2, keepdim=True)
+            norms = torch.where(norms > 0, norms, torch.ones_like(norms))
+            normalized_vectors = diff_vectors / (norms + self.eps)
+
+            # Calculating angles
+            dot_products = torch.matmul(normalized_vectors, normalized_vectors.transpose(1, 2))
+            dot_products = torch.clamp(dot_products, -1.0 + self.eps, 1.0 - self.eps)  # Clamping to avoid numerical issues
+            angles = torch.acos(dot_products)
+
+            return angles[torch.triu(torch.ones_like(angles), diagonal=1) == 1], valid_classes
     
     def compute_centroids(self, x: torch.Tensor, y: torch.Tensor, z: torch.Tensor):
         if self.centroid_method == "mean":

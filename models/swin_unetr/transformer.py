@@ -137,7 +137,7 @@ class SwinTransformer(nn.Module):
         patch_size: Sequence[int],
         depths: Sequence[int],
         num_heads: Sequence[int],
-        time_embed_size: int = 512,
+        embedding_size: int = 512,
         mlp_ratio: float = 4.0,
         qkv_bias: bool = True,
         drop_rate: float = 0.0,
@@ -203,8 +203,8 @@ class SwinTransformer(nn.Module):
             
         down_sample_mod = look_up_option(downsample, MERGING_MODE) if isinstance(downsample, str) else downsample
         
-        # timestep projection
-        self.t_proj = nn.ModuleList()
+        self.t_proj = nn.ModuleList() # timestep projection
+        # self.skip_layer = nn.ModuleList() # long skip connection
         
         for i_layer in range(self.num_layers):
             layer = BasicLayer(
@@ -221,6 +221,7 @@ class SwinTransformer(nn.Module):
                 downsample=down_sample_mod,
                 use_checkpoint=use_checkpoint,
             )
+            
             if i_layer == 0:
                 self.layers1.append(layer)
             elif i_layer == 1:
@@ -229,6 +230,7 @@ class SwinTransformer(nn.Module):
                 self.layers3.append(layer)
             elif i_layer == 3:
                 self.layers4.append(layer)
+                
             if self.use_v2:
                 layerc = UnetrBasicBlock(
                     spatial_dims=3,
@@ -248,9 +250,9 @@ class SwinTransformer(nn.Module):
                 elif i_layer == 3:
                     self.layers4c.append(layerc)
             
-        #     self.t_proj.append(torch.nn.Linear(time_embed_size, int(embed_dim * 2**i_layer)))
+            self.t_proj.append(nn.Linear(embedding_size, int(embed_dim * 2**i_layer)))
+        self.t_proj.append(nn.Linear(embedding_size, int(embed_dim * 2**self.num_layers))) # final layer of time projection
 
-        # self.t_proj.append(torch.nn.Linear(time_embed_size, int(embed_dim * 2**self.num_layers))) # final layer of time projection
         self.num_features = int(embed_dim * 2 ** (self.num_layers - 1))
 
     def proj_out(self, x, normalize=False):
@@ -267,36 +269,49 @@ class SwinTransformer(nn.Module):
                 x = F.layer_norm(x, [ch])
                 x = rearrange(x, "n h w c -> n c h w")
         return x
+    
+    def skip_connect(self, x0: torch.Tensor, x1: torch.Tensor):
+        pass
 
     def forward(self, x, t, normalize=True):
         x0 = self.patch_embed(x)
         x0 = self.pos_drop(x0)
-        # x0 = x0 + self.t_proj[0](nonlinearity(t))[:, :, None, None, None]
-        x0_out = self.proj_out(x0, normalize)
-        if self.use_v2:
-            x0 = self.layers1c[0](x0.contiguous())
+        x0 = x0 + self.t_proj[0](nonlinearity(t))[:, :, None, None, None]
+        x0_out = self.proj_out(x0, normalize) # [1, 48, 48, 48, 48]
+        # print("x0 : ", x0.shape)
+        # print("x0_out : ", x0_out.shape)
+        
+        if self.use_v2: x0 = self.layers1c[0](x0.contiguous())
         
         x1 = self.layers1[0](x0.contiguous())
-        # x1 = x1 + self.t_proj[1](nonlinearity(t))[:, :, None, None, None]
-        x1_out = self.proj_out(x1, normalize)
-        if self.use_v2:
-            x1 = self.layers2c[0](x1.contiguous())
+        x1 = x1 + self.t_proj[1](nonlinearity(t))[:, :, None, None, None]
+        x1_out = self.proj_out(x1, normalize) # [1, 96, 24, 24, 24]
+        # print("x1 : ", x1.shape)
+        # print("x1_out : ", x1_out.shape)
+        
+        if self.use_v2: x1 = self.layers2c[0](x1.contiguous())
         
         x2 = self.layers2[0](x1.contiguous())
-        # x2 = x2 + self.t_proj[2](nonlinearity(t))[:, :, None, None, None]
-        x2_out = self.proj_out(x2, normalize)
-        if self.use_v2:
-            x2 = self.layers3c[0](x2.contiguous())
+        x2 = x2 + self.t_proj[2](nonlinearity(t))[:, :, None, None, None]
+        x2_out = self.proj_out(x2, normalize) # [1, 192, 12, 12, 12]
+        # print("x2 : ", x2.shape)
+        # print("x2_out : ", x2_out.shape)
+        
+        if self.use_v2: x2 = self.layers3c[0](x2.contiguous())
         
         x3 = self.layers3[0](x2.contiguous())
-        # x3 = x3 + self.t_proj[3](nonlinearity(t))[:, :, None, None, None]
-        x3_out = self.proj_out(x3, normalize)
-        if self.use_v2:
-            x3 = self.layers4c[0](x3.contiguous())
+        x3 = x3 + self.t_proj[3](nonlinearity(t))[:, :, None, None, None]
+        x3_out = self.proj_out(x3, normalize) # [1, 384, 6, 6, 6]
+        # print("x3 : ", x3.shape)
+        # print("x3_out : ", x3_out.shape)
+        
+        if self.use_v2: x3 = self.layers4c[0](x3.contiguous())
         
         x4 = self.layers4[0](x3.contiguous())
-        # x4 = x4 + self.t_proj[4](nonlinearity(t))[:, :, None, None, None]
-        x4_out = self.proj_out(x4, normalize)
+        x4 = x4 + self.t_proj[4](nonlinearity(t))[:, :, None, None, None]
+        x4_out = self.proj_out(x4, normalize) # [1, 768, 3, 3, 3]
+        # print("x4 : ", x4.shape)
+        # print("x4_out : ", x4_out.shape)
         
         return [x0_out, x1_out, x2_out, x3_out, x4_out]
 

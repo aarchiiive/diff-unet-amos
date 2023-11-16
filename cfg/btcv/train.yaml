@@ -10,7 +10,7 @@ scheduler: true
 warmup_epochs: 100
 timesteps: 1000
 classes: cfg/btcv/classes.yaml
-device: cuda:4
+device: cuda:3
 model_path: null # logs/swin-diff-unetr-btcv-5/weights/epoch_150.pt # logs/diff-unet-btcv-32/weights/epoch_2600.pt # resume 
 pretrained_path: pretrained/swin_unetr/encoder.pt # pretrained/basic_unet/encoder.pt # pretrained/swin_unetr/model_swinvit.pt
 max_epochs: 5000
@@ -23,8 +23,8 @@ num_workers: 2
 device_ids: null # 0 # ,1,2,3,4
 project_name: diff-unet-main
 wandb_name: null
-log_dir: swin-diff-unetr-btcv-11
-losses: mse,bce,dice_focal # ,multi_neighbor # e.g ce,mse,bce,dice,focal,boundary,dice_ce,dice_focal,generalized_dice,multi_neighbor,hausdorff_er,generalized_wasserstein_dice
+log_dir: swin-diff-unetr-btcv-12
+losses: mse,bce,dice_focal,multi_neighbor # e.g ce,mse,bce,dice,focal,boundary,dice_ce,dice_focal,generalized_dice,multi_neighbor,hausdorff_er,generalized_wasserstein_dice
 loss_combine: sum # sum / mean / log
 include_background: false
 use_wandb: true  # false

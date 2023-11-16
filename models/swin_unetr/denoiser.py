@@ -76,7 +76,6 @@ class SwinUNETRDenoiser(nn.Module):
         attn_drop_rate: float = 0.0,
         mask_ratio: float = None,
         noise_ratio: float = 0.5,
-        embedding_dim: int = 128,
         dropout_path_rate: float = 0.0,
         normalize: bool = True,
         use_checkpoint: bool = False,
@@ -147,7 +146,12 @@ class SwinUNETRDenoiser(nn.Module):
         
         # timesteps & noise
         self.noise_ratio = noise_ratio
-        self.t_embedder = TimeStepEmbedder(embedding_dim)
+        self.t_embedder = TimeStepEmbedder(embedding_size)
+        
+        # if isinstance(image_size, int):
+        #     self.pos_embed = nn.Parameter(torch.zeros(1, in_channels, image_size, image_size, image_size))
+        # elif isinstance(image_size, Sequence):
+        #     self.pos_embed = nn.Parameter(torch.zeros(1, in_channels, *image_size))
 
         self.swinViT = SwinTransformer(
             in_chans=in_channels,
@@ -156,7 +160,7 @@ class SwinUNETRDenoiser(nn.Module):
             patch_size=patch_size,
             depths=depths,
             num_heads=num_heads,
-            time_embed_size=embedding_size,
+            embedding_size=embedding_size,
             mlp_ratio=4.0,
             qkv_bias=True,
             drop_rate=drop_rate,
@@ -256,6 +260,7 @@ class SwinUNETRDenoiser(nn.Module):
             norm_name=norm_name,
             res_block=True,
         )
+        
         self.decoder2 = UnetrUpBlock(
             spatial_dims=spatial_dims,
             in_channels=feature_size * 2,
@@ -279,6 +284,37 @@ class SwinUNETRDenoiser(nn.Module):
         )
 
         self.out = UnetOutBlock(spatial_dims=spatial_dims, in_channels=feature_size, out_channels=out_channels)
+    
+    def forward(
+        self, 
+        x: torch.Tensor, 
+        t: torch.Tensor, 
+        image: torch.Tensor = None,
+        embeddings: Any = None, # possible to include list of tensors
+    ):
+        t = self.t_embedder(t)
+        x = torch.cat([image, x], dim=1) # + self.pos_embed
+        
+        hidden_states_out = self.swinViT(x, t, self.normalize)
+        
+        for i in range(len(hidden_states_out)):
+            hidden_states_out[i] = hidden_states_out[i] + embeddings[0][i]
+        
+        enc0 = self.encoder1(x, t) + embeddings[1]
+        enc1 = self.encoder2(hidden_states_out[0], t) + embeddings[2] # [1, 48, 48, 48, 48]
+        enc2 = self.encoder3(hidden_states_out[1], t) + embeddings[3] # [1, 96, 24, 24, 24]
+        enc3 = self.encoder4(hidden_states_out[2], t) + embeddings[4] # [1, 192, 12, 12, 12]
+        
+        dec4 = self.encoder10(hidden_states_out[4], t)
+        dec3 = self.decoder5(dec4, hidden_states_out[3], t)
+        dec2 = self.decoder4(dec3, enc3, t) # [1, 192, 12, 12, 12]
+        dec1 = self.decoder3(dec2, enc2, t) # [1, 96, 24, 24, 24]
+        dec0 = self.decoder2(dec1, enc1, t) # [1, 48, 48, 48, 48]
+        
+        out = self.decoder1(dec0, enc0, t)
+        logits = self.out(out)
+        
+        return logits
 
     def load_from(self, weights):
         with torch.no_grad():
@@ -329,34 +365,3 @@ class SwinUNETRDenoiser(nn.Module):
                 weights["state_dict"]["module.layers4.0.downsample.norm.bias"]
             )
     
-    def forward(
-        self, 
-        x: torch.Tensor, 
-        t: torch.Tensor, 
-        image: torch.Tensor = None,
-        embeddings: Any = None, # possible to include list of tensors
-    ):
-        t = self.t_embedder(t)
-        # x = image + x * self.noise_ratio # add some noise
-        x = torch.cat([image, x], dim=1)
-        
-        hidden_states_out = self.swinViT(x, t, self.normalize)
-        
-        # for i in range(len(hidden_states_out)):
-        #     hidden_states_out[i] = hidden_states_out[i] + embeddings[0][i]
-        
-        enc0 = self.encoder1(x, t) + embeddings[1]
-        enc1 = self.encoder2(hidden_states_out[0], t) + embeddings[2]
-        enc2 = self.encoder3(hidden_states_out[1], t) + embeddings[3]
-        enc3 = self.encoder4(hidden_states_out[2], t) + embeddings[4]
-        
-        dec4 = self.encoder10(hidden_states_out[4], t)
-        dec3 = self.decoder5(dec4, hidden_states_out[3], t)
-        dec2 = self.decoder4(dec3, enc3, t)
-        dec1 = self.decoder3(dec2, enc2, t)
-        dec0 = self.decoder2(dec1, enc1, t)
-        
-        out = self.decoder1(dec0, enc0, t)
-        logits = self.out(out)
-        
-        return logits

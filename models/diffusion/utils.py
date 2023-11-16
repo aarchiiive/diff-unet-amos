@@ -33,12 +33,14 @@ class TimeStepEmbedder(nn.Module):
     def __init__(
         self,
         embedding_dim: int = 128,
+        out_features: int = 512,
     ) -> None:
         super().__init__()
         self.embedding_dim = embedding_dim
         self.dense = nn.ModuleList([
-            torch.nn.Linear(128, 512),
-            torch.nn.Linear(512, 512),
+            nn.Linear(embedding_dim, out_features),
+            nn.SiLU(),
+            nn.Linear(out_features, out_features),
         ])
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
