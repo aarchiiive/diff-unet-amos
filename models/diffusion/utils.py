@@ -39,7 +39,8 @@ class TimeStepEmbedder(nn.Module):
         self.embedding_dim = embedding_dim
         self.dense = nn.ModuleList([
             nn.Linear(embedding_dim, out_features),
-            nn.SiLU(),
+            # nn.SiLU(),
+            nn.GELU(),
             nn.Linear(out_features, out_features),
         ])
 
