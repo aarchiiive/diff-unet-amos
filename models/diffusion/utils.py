@@ -34,6 +34,7 @@ class TimeStepEmbedder(nn.Module):
         self,
         embedding_dim: int = 128,
         out_features: int = 512,
+        drop_rate: float = 0.2
     ) -> None:
         super().__init__()
         self.embedding_dim = embedding_dim
@@ -41,7 +42,9 @@ class TimeStepEmbedder(nn.Module):
             nn.Linear(embedding_dim, out_features),
             # nn.SiLU(),
             nn.GELU(),
+            nn.Dropout(drop_rate),
             nn.Linear(out_features, out_features),
+            nn.Dropout(drop_rate),
         ])
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
