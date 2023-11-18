@@ -20,13 +20,12 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-# from timm.models.vision_transformer import PatchEmbed
+from voxelmorph.torch.layers import VecInt, SpatialTransformer
+from voxelmorph.torch.networks import VxmDense
 
-# from monai.networks.blocks import UnetOutBlock, UnetrBasicBlock, UnetrUpBlock
 from monai.utils import ensure_tuple_rep, look_up_option, optional_import
 
 from .patch_embed import PatchEmbed
-# from .embedders import LabelEmbedder, TimestepEmbedder
 from .blocks import UnetOutBlock, UnetrUpBlock, UnetrBasicBlock
 from .patch import MERGING_MODE
 from .transformer import SwinTransformer
@@ -182,6 +181,9 @@ class SwinUNETRDenoiser(nn.Module):
         self.t_embedder = TimeStepEmbedder(embedding_size)
         self.comp_mixer = CompositionalMixer(in_channels, 2*in_channels, out_channels, image_size)
         
+        # voxelmorph
+        # self.vxm = None
+        # self.spatial_transformer = SpatialTransformer(image_size, mode="bilinear", padding_mode="border")
         # if isinstance(image_size, int):
         #     self.pos_embed = nn.Parameter(torch.zeros(1, in_channels, image_size, image_size, image_size))
         # elif isinstance(image_size, Sequence):

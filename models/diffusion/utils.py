@@ -41,10 +41,10 @@ class TimeStepEmbedder(nn.Module):
         self.dense = nn.ModuleList([
             nn.Linear(embedding_dim, out_features),
             # nn.SiLU(),
-            nn.GELU(),
-            nn.Dropout(drop_rate),
+            # nn.GELU(),
+            # nn.Dropout(drop_rate),
             nn.Linear(out_features, out_features),
-            nn.Dropout(drop_rate),
+            # nn.Dropout(drop_rate),
         ])
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
