@@ -20,11 +20,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from voxelmorph.torch.layers import VecInt, SpatialTransformer
-from voxelmorph.torch.networks import VxmDense
-
 from monai.utils import ensure_tuple_rep, look_up_option, optional_import
 
+from .vxm import VXM
 from .patch_embed import PatchEmbed
 from .blocks import UnetOutBlock, UnetrUpBlock, UnetrBasicBlock
 from .patch import MERGING_MODE
@@ -33,56 +31,6 @@ from ..diffusion import get_timestep_embedding, nonlinearity, TimeStepEmbedder
 
 rearrange, _ = optional_import("einops", name="rearrange")
 
-class CompositionalMixer(nn.Module):  
-    def __init__(
-        self,
-        in_channels: int,
-        hidden_channels: int,
-        out_channels: int,
-        image_size: Sequence[int] | int = 96,
-        drop_rate: float = 0.5,
-    ) -> None:
-        super().__init__()
-        self.image_size = ensure_tuple_rep(image_size, 3)    
-        
-        self.layer_norm1 = nn.LayerNorm(in_channels)
-        self.layer1 = nn.Sequential(
-            nn.Linear(in_channels, hidden_channels),
-            nn.GELU(),
-            nn.Dropout(drop_rate),
-            nn.Linear(hidden_channels, in_channels),    
-            nn.Dropout(drop_rate)
-        )
-        self.layer_norm2 = nn.LayerNorm(in_channels)
-        self.out = nn.Sequential(
-            nn.Linear(hidden_channels, hidden_channels), 
-            nn.GELU(),
-            nn.Dropout(drop_rate),
-            nn.Linear(hidden_channels, out_channels),    
-            nn.Dropout(drop_rate)
-        )
-    
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-            x: [B, C, D, H, W]
-        """
-        B, C, D, H, W = x.shape
-        
-        x = x.view(B, C, -1).transpose(2, 1) # [B, C, D*H*W] -> [B, D*H*W, C]
-        x0 = x
-        
-        x1 = self.layer_norm1(x)
-        x1 = self.layer1(x1)
-        
-        x2 = self.layer_norm2(x0 + x1)
-        x2 = torch.cat((x0, x2), dim=2)
-        x2 = self.out(x2)
-        
-        out = x2.view(B, -1, D, H, W)
-        
-        return out
-    
-    
 class SwinUNETRDenoiser(nn.Module):
     """
     Swin UNETR based on: "Hatamizadeh et al.,
@@ -179,8 +127,11 @@ class SwinUNETRDenoiser(nn.Module):
         # timesteps & noise
         self.noise_ratio = noise_ratio
         self.t_embedder = TimeStepEmbedder(embedding_size)
-        self.comp_mixer = CompositionalMixer(in_channels, 2*in_channels, out_channels, image_size)
         
+        # self.comp_mixer = CompositionalMixer(in_channels, 2*in_channels, out_channels, image_size)
+        
+        self.vxm = VXM(image_size, out_channels, len(image_size))
+            
         # voxelmorph
         # self.vxm = None
         # self.spatial_transformer = SpatialTransformer(image_size, mode="bilinear", padding_mode="border")
@@ -329,8 +280,9 @@ class SwinUNETRDenoiser(nn.Module):
         embeddings: Any = None, # possible to include list of tensors
     ):
         t = self.t_embedder(t)
+        noise = x
         x = torch.cat([image, x], dim=1) # + self.pos_embed
-        comp = self.comp_mixer(x) # mixed composition
+        # comp = self.comp_mixer(x) # mixed composition
         
         hidden_states_out = self.swinViT(x, t, self.normalize)
         
@@ -349,9 +301,11 @@ class SwinUNETRDenoiser(nn.Module):
         dec0 = self.decoder2(dec1, enc1, t) # [1, 48, 48, 48, 48]
         
         out = self.decoder1(dec0, enc0, t)
-        logits = self.out(out) + comp # add composition to output
+        logits = self.out(out) # + comp # add composition to output
         
-        return logits
+        vxm = self.vxm(logits, image, noise)
+        
+        return vxm
 
     def load_from(self, weights):
         with torch.no_grad():
