@@ -34,26 +34,55 @@ from ..diffusion import get_timestep_embedding, nonlinearity, TimeStepEmbedder
 
 rearrange, _ = optional_import("einops", name="rearrange")
 
-
-def get_timestep_embedding(timesteps, embedding_dim):
-    """
-    This matches the implementation in Denoising Diffusion Probabilistic Models:
-    From Fairseq.
-    Build sinusoidal embeddings.
-    This matches the implementation in tensor2tensor, but differs slightly
-    from the description in Section 3.5 of "Attention Is All You Need".
-    """
-    assert len(timesteps.shape) == 1
-
-    half_dim = embedding_dim // 2
-    emb = math.log(10000) / (half_dim - 1)
-    emb = torch.exp(torch.arange(half_dim, dtype=torch.float32) * -emb)
-    emb = emb.to(device=timesteps.device)
-    emb = timesteps.float()[:, None] * emb[None, :]
-    emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1)
-    if embedding_dim % 2 == 1:  # zero pad
-        emb = torch.nn.functional.pad(emb, (0, 1, 0, 0))
-    return emb
+class CompositionalMixer(nn.Module):  
+    def __init__(
+        self,
+        in_channels: int,
+        hidden_channels: int,
+        out_channels: int,
+        image_size: Sequence[int] | int = 96,
+        drop_rate: float = 0.5,
+    ) -> None:
+        super().__init__()
+        self.image_size = ensure_tuple_rep(image_size, 3)    
+        
+        self.layer_norm1 = nn.LayerNorm(in_channels)
+        self.layer1 = nn.Sequential(
+            nn.Linear(in_channels, hidden_channels),
+            nn.GELU(),
+            nn.Dropout(drop_rate),
+            nn.Linear(hidden_channels, in_channels),    
+            nn.Dropout(drop_rate)
+        )
+        self.layer_norm2 = nn.LayerNorm(in_channels)
+        self.out = nn.Sequential(
+            nn.Linear(hidden_channels, hidden_channels), 
+            nn.GELU(),
+            nn.Dropout(drop_rate),
+            nn.Linear(hidden_channels, out_channels),    
+            nn.Dropout(drop_rate)
+        )
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+            x: [B, C, D, H, W]
+        """
+        B, C, D, H, W = x.shape
+        
+        x = x.view(B, C, -1).transpose(2, 1) # [B, C, D*H*W] -> [B, D*H*W, C]
+        x0 = x
+        
+        x1 = self.layer_norm1(x)
+        x1 = self.layer1(x1)
+        
+        x2 = self.layer_norm2(x0 + x1)
+        x2 = torch.cat((x0, x2), dim=2)
+        x2 = self.out(x2)
+        
+        out = x2.view(B, -1, D, H, W)
+        
+        return out
+    
     
 class SwinUNETRDenoiser(nn.Module):
     """
@@ -121,6 +150,10 @@ class SwinUNETRDenoiser(nn.Module):
         image_size = ensure_tuple_rep(image_size, spatial_dims)
         patch_size = ensure_tuple_rep(2, spatial_dims)
         window_size = ensure_tuple_rep(7, spatial_dims)
+        
+        self.image_size = image_size    
+        self.in_channels = in_channels  
+        self.num_classes = out_channels
 
         if spatial_dims not in (2, 3):
             raise ValueError("spatial dimension should be 2 or 3.")
@@ -147,12 +180,7 @@ class SwinUNETRDenoiser(nn.Module):
         # timesteps & noise
         self.noise_ratio = noise_ratio
         self.t_embedder = TimeStepEmbedder(embedding_size)
-        # self.feature_embedder = nn.ModuleList(
-        #     [
-        #         nn.Linear(feature_size, feature_size),
-        #         nn.Linear(feature_size, feature_size),
-        #     ]
-        # )
+        self.comp_mixer = CompositionalMixer(in_channels, 2*in_channels, out_channels, image_size)
         
         # if isinstance(image_size, int):
         #     self.pos_embed = nn.Parameter(torch.zeros(1, in_channels, image_size, image_size, image_size))
@@ -300,6 +328,7 @@ class SwinUNETRDenoiser(nn.Module):
     ):
         t = self.t_embedder(t)
         x = torch.cat([image, x], dim=1) # + self.pos_embed
+        comp = self.comp_mixer(x) # mixed composition
         
         hidden_states_out = self.swinViT(x, t, self.normalize)
         
@@ -318,7 +347,7 @@ class SwinUNETRDenoiser(nn.Module):
         dec0 = self.decoder2(dec1, enc1, t) # [1, 48, 48, 48, 48]
         
         out = self.decoder1(dec0, enc0, t)
-        logits = self.out(out)
+        logits = self.out(out) + comp # add composition to output
         
         return logits
 
