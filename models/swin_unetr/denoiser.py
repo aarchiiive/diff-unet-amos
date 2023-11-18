@@ -303,9 +303,9 @@ class SwinUNETRDenoiser(nn.Module):
         out = self.decoder1(dec0, enc0, t)
         logits = self.out(out) # + comp # add composition to output
         
-        vxm = self.vxm(logits, image, noise)
+        logits = logits + self.vxm(logits, image, noise)
         
-        return vxm
+        return logits
 
     def load_from(self, weights):
         with torch.no_grad():

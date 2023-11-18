@@ -98,6 +98,7 @@ class SpatialTransformer(nn.Module):
 
     def forward(self, src: torch.Tensor, flow: torch.Tensor):
         # new locations
+        self.grid = self.grid.to(src.device)
         new_locs = self.grid + flow
         shape = flow.shape[2:]
 
