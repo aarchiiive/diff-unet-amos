@@ -303,7 +303,8 @@ class SwinUNETRDenoiser(nn.Module):
         out = self.decoder1(dec0, enc0, t)
         logits = self.out(out) # + comp # add composition to output
         
-        logits = logits + self.vxm(logits, image, noise)
+        # logits = logits + self.vxm(logits, image, noise)
+        logits = self.vxm(logits, image, noise)
         
         return logits
 

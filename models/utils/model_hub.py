@@ -14,22 +14,32 @@ class ModelHub:
     
     def __call__(self, model_name: str, **kwargs: Any) -> Any:
         if model_name == "diff_unet":
-            model = DiffUNet(**kwargs)
+            model = DiffUNet(
+                in_channels=kwargs['in_channels'],
+                out_channels=kwargs['out_channels'],
+            )
         elif model_name == "smooth_diff_unet":
-            model = SmoothDiffUNet(**kwargs)
+            model = SmoothDiffUNet(
+                in_channels=kwargs['in_channels'],
+                out_channels=kwargs['out_channels'],
+            )
         elif model_name == "attention_diff_unet":
             model = AttentionDiffUNet(**kwargs)
         elif model_name == "swin_diff_unetr":
-            model = SwinDiffUNETR(image_size=self.parse_image_size(**kwargs),
-                                    in_channels=kwargs['in_channels'],
-                                    out_channels=kwargs['out_channels'],
-                                    noise_ratio=kwargs['noise_ratio'],
-                                    feature_size=48)
+            model = SwinDiffUNETR(
+                image_size=self.parse_image_size(**kwargs),
+                in_channels=kwargs['in_channels'],
+                out_channels=kwargs['out_channels'],
+                noise_ratio=kwargs['noise_ratio'],
+                feature_size=48
+            )
         elif model_name == "swin_unetr":
-            model = SwinUNETR(img_size=self.parse_image_size(**kwargs),
-                              in_channels=kwargs['in_channels'],
-                              out_channels=kwargs['out_channels'],
-                              feature_size=48)
+            model = SwinUNETR(
+                img_size=self.parse_image_size(**kwargs),
+                in_channels=kwargs['in_channels'],
+                out_channels=kwargs['out_channels'],
+                feature_size=48
+            )
         # elif model_name == "attention_unet":
         #     model = AttentionUNet(in_channels=1,
         #                           out_channels=kwargs['num_classes'])
