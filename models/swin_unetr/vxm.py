@@ -183,10 +183,12 @@ class VXM(nn.Module):
         neg_flow = -pos_flow
         
         pos_flow = self.integrate(pos_flow)
-        neg_flow = self.integrate(neg_flow)
+        # neg_flow = self.integrate(neg_flow)
         
-        pos_flow = self.transformer(image, pos_flow)
-        neg_flow = self.transformer(noise, neg_flow)
+        pos_flow = self.transformer(x, pos_flow)
+        # neg_flow = self.transformer(noise, neg_flow)
+        # print(pos_flow.shape, neg_flow.shape)
+        
         
         # out = torch.cat((pos_flow, neg_flow), dim=1)    
         
