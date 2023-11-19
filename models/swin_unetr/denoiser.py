@@ -47,6 +47,7 @@ class SwinUNETRDenoiser(nn.Module):
         depths: Sequence[int] = (2, 2, 2, 2),
         num_heads: Sequence[int] = (3, 6, 12, 24),
         feature_size: int = 24,
+        embedding_dim: int = 128, # for time embedding
         norm_name: tuple | str = "instance",
         drop_rate: float = 0.0,
         attn_drop_rate: float = 0.0,
@@ -126,11 +127,11 @@ class SwinUNETRDenoiser(nn.Module):
         
         # timesteps & noise
         self.noise_ratio = noise_ratio
-        self.t_embedder = TimeStepEmbedder(embedding_size)
+        self.t_embedder = TimeStepEmbedder(embedding_dim)
         
         # self.comp_mixer = CompositionalMixer(in_channels, 2*in_channels, out_channels, image_size)
         
-        self.vxm = VXM(image_size, out_channels, len(image_size))
+        # self.vxm = VXM(image_size, out_channels, len(image_size))
             
         # voxelmorph
         # self.vxm = None
@@ -280,7 +281,7 @@ class SwinUNETRDenoiser(nn.Module):
         embeddings: Any = None, # possible to include list of tensors
     ):
         t = self.t_embedder(t)
-        noise = x
+        # noise = x
         x = torch.cat([image, x], dim=1) # + self.pos_embed
         # comp = self.comp_mixer(x) # mixed composition
         
@@ -304,7 +305,7 @@ class SwinUNETRDenoiser(nn.Module):
         logits = self.out(out) # + comp # add composition to output
         
         # logits = logits + self.vxm(logits, image, noise)
-        logits = self.vxm(logits, image, noise)
+        # logits = self.vxm(logits, image, noise)
         
         return logits
 
