@@ -10,7 +10,7 @@ scheduler: true
 warmup_epochs: 100
 timesteps: 1000
 classes: cfg/btcv/classes.yaml
-device: cuda:2
+device: cuda:4
 model_path: null # logs/swin-diff-unetr-btcv-9/weights/epoch_5000.pt # logs/diff-unet-btcv-32/weights/epoch_2600.pt # resume 
 pretrained_path: pretrained/swin_unetr/encoder.pt # pretrained/basic_unet/encoder.pt # pretrained/swin_unetr/model_swinvit.pt
 max_epochs: 20000
