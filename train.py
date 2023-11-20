@@ -280,7 +280,7 @@ class Trainer(Engine):
                                 save_path=os.path.join(self.weights_path, f"best_{mean_dice:.4f}.pt"))
 
         print(f"mean_dice : {mean_dice:.4f}")
-        self.log("mean_dice", mean_dice, epoch, resume=self.resume)
+        self.log("mean_dice", mean_dice, epoch)
 
 if __name__ == "__main__":
     args = parse_args()
