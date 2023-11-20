@@ -23,7 +23,7 @@ num_workers: 2
 device_ids: null # 0 # ,1,2,3,4
 project_name: diff-unet-main
 wandb_name: null
-log_dir: swin-diff-unetr-btcv-22
+log_dir: swin-diff-unetr-btcv-23
 losses: mse,bce,dice_focal # ,multi_neighbor # e.g ce,mse,bce,dice,focal,boundary,dice_ce,dice_focal,generalized_dice,multi_neighbor,hausdorff_er,generalized_wasserstein_dice
 loss_combine: sum # sum / mean / log
 include_background: false

@@ -23,6 +23,7 @@ import torch.nn as nn
 from monai.utils import ensure_tuple_rep, look_up_option, optional_import
 
 from .vxm import VXM
+from .layers import SmoothLayer
 from .patch_embed import PatchEmbed
 from .blocks import UnetOutBlock, UnetrUpBlock, UnetrBasicBlock
 from .patch import MERGING_MODE
@@ -128,6 +129,12 @@ class SwinUNETRDenoiser(nn.Module):
         # timesteps & noise
         self.noise_ratio = noise_ratio
         self.t_embedder = TimeStepEmbedder(embedding_dim)
+        
+        features = [feature_size * (2 ** max(0, i - 1)) for i in range(4)]
+        self.smooth = nn.ModuleList([
+            SmoothLayer(features[i], image_size[0] // (2**i), image_size[1] // (2**i), image_size[2] // (2**i)) \
+                for i in range(len(depths))
+        ])
         
         # self.comp_mixer = CompositionalMixer(in_channels, 2*in_channels, out_channels, image_size)
         
@@ -291,9 +298,13 @@ class SwinUNETRDenoiser(nn.Module):
             hidden_states_out[i] = hidden_states_out[i] + embeddings[0][i]
         
         enc0 = self.encoder1(x, t) + embeddings[1] # [1, 48, 96, 96, 96]
+        enc0 = self.smooth[0](enc0)
         enc1 = self.encoder2(hidden_states_out[0], t) + embeddings[2] # [1, 48, 48, 48, 48]
+        enc1 = self.smooth[1](enc1)
         enc2 = self.encoder3(hidden_states_out[1], t) + embeddings[3] # [1, 96, 24, 24, 24]
+        enc2 = self.smooth[2](enc2)
         enc3 = self.encoder4(hidden_states_out[2], t) + embeddings[4] # [1, 192, 12, 12, 12]
+        enc3 = self.smooth[3](enc3)
         
         dec4 = self.encoder10(hidden_states_out[4], t)
         dec3 = self.decoder5(dec4, hidden_states_out[3], t)
