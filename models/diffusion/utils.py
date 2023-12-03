@@ -28,7 +28,6 @@ def nonlinearity(x):
     # swish
     return x*torch.sigmoid(x)
 
-
 class TimeStepEmbedder(nn.Module):
     def __init__(
         self,
