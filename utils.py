@@ -12,13 +12,9 @@ from monai.data import (
     ThreadDataLoader,
     CacheDataset,
     load_decathlon_datalist,
-    decollate_batch,
-    set_track_meta,
 )
 
-from dataset.amos_dataset import AMOSDataset
-from dataset.msd_dataset import MSDDataset
-from dataset.btcv_dataset import BTCVDataset
+from dataset.cache_dataset import LabelSmoothingCacheDataset
 from models.utils.model_hub import ModelHub
 from models.utils.model_type import ModelType
 
@@ -53,6 +49,7 @@ def get_dataloader(
     data_path: str, 
     image_size: int = 256, 
     spatial_size: int = 96, 
+    num_classes: int = 14,
     num_samples: int = 1, 
     num_workers: int = 8,
     batch_size: int = 1,
@@ -62,7 +59,7 @@ def get_dataloader(
     transform = {}
     transform["train"] = transforms.Compose(
         [   
-            transforms.LoadImaged(keys=["image", "label"], ensure_channel_first=True),
+            # transforms.LoadImaged(keys=["image", "label"], ensure_channel_first=True),
             transforms.ScaleIntensityRanged(
                 keys=["image"], a_min=-175, a_max=250.0, b_min=0, b_max=1.0, clip=True
             ),
@@ -80,17 +77,17 @@ def get_dataloader(
                 roi_scale=[0.75, 0.85, 1.0],
                 random_size=False
             ),
-            transforms.Resized(keys=["image", "label"], spatial_size=(spatial_size*2, image_size*2, image_size*2)),
-            transforms.RandCropByPosNegLabeld(
-                keys=["image", "label"],
-                label_key="label",
-                spatial_size=(spatial_size, image_size, image_size),
-                pos=1,
-                neg=1,
-                num_samples=num_samples,
-                image_key="image",
-                image_threshold=0,
-            ),
+            transforms.Resized(keys=["image", "label"], spatial_size=(spatial_size, image_size, image_size)),
+            # transforms.RandCropByPosNegLabeld(
+            #     keys=["image", "label"],
+            #     label_key="label",
+            #     spatial_size=(spatial_size, image_size, image_size),
+            #     pos=1,
+            #     neg=1,
+            #     num_samples=num_samples,
+            #     image_key="image",
+            #     image_threshold=0,
+            # ),
             
             transforms.RandFlipd(keys=["image", "label"], prob=0.1, spatial_axis=0),
             transforms.RandFlipd(keys=["image", "label"], prob=0.1, spatial_axis=1),
@@ -149,13 +146,31 @@ def get_dataloader(
         if mode == "train" and p == "test": continue
         elif mode == "test" and p == "train": continue
         data = load_decathlon_datalist(os.path.join(data_path, "dataset.json"), True, parse_type(p))
-        dataset = CacheDataset(
-            data=data,
-            transform=transform[p],
-            cache_num=len(data),
-            cache_rate=cache_rate,
-            num_workers=max(num_workers, 20),
-        )
+        
+        if p == "train":
+            dataset = LabelSmoothingCacheDataset(
+                data=data,
+                transform=transform[p],
+                cache_num=len(data),
+                cache_rate=cache_rate,
+                num_workers=max(num_workers, 20),
+                num_classes=num_classes,
+            )
+            # dataset = CacheDataset(
+            #     data=data,
+            #     transform=transform[p],
+            #     cache_num=len(data),
+            #     cache_rate=cache_rate,
+            #     num_workers=max(num_workers, 20),
+            # )
+        else:
+            dataset = CacheDataset(
+                data=data,
+                transform=transform[p],
+                cache_num=len(data),
+                cache_rate=cache_rate,
+                num_workers=max(num_workers, 20),
+            )
         dataloader[p] = ThreadDataLoader(
             dataset=dataset,
             num_workers=num_workers,
