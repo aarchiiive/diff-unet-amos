@@ -238,18 +238,7 @@ class Trainer(Engine):
 
     def training_step(self, batch):
         image, label = self.get_input(batch)
-        B, C, W, H, D = label.shape
         
-        print(label.shape)
-        
-        i = 48
-        
-        for x in range(200, W):
-            for y in range(200, H):
-                if label[:, x, y, i][0] < 0.5:
-                    print("[labels]")
-                    print(label[0, :, x, y, i])
-            
         if self.model_type == ModelType.Diffusion:
             x_start = (label) * 2 - 1
             x_t, t, _ = self.model(x=x_start, pred_type="q_sample")
