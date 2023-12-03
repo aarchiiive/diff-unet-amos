@@ -38,6 +38,7 @@ class Engine:
         project_name: str = None,
         wandb_name: str = None,
         include_background: bool = False,
+        label_smoothing: bool = False,
         use_amp: bool = True,
         use_cache: bool = True,
         use_wandb: bool = True,
@@ -64,6 +65,7 @@ class Engine:
         self.project_name = project_name
         self.wandb_name = wandb_name
         self.include_background = include_background
+        self.label_smoothing = label_smoothing
         self.use_amp = use_amp
         self.use_cache = use_cache
         self.use_wandb = use_wandb
@@ -153,11 +155,15 @@ class Engine:
         return image, label
 
     def convert_labels(self, labels: torch.Tensor):
-        if self.one_hot:
+        if self.label_smoothing:
+            if not self.include_background:
+                return labels[:, 1:, ...]
+            
+        elif self.one_hot:
             new_labels = [labels == i for i in sorted(self.class_names.keys())]
             return torch.cat(new_labels, dim=1) 
-        else:
-            return labels
+        
+        return labels
     
     def infer(self, batch) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         image, labels = self.get_input(batch)    
