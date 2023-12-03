@@ -147,26 +147,27 @@ class Engine:
     def set_losses(self):
         pass
         
-    def get_input(self, batch: dict):
+    def get_input(self, batch: dict, phase: str = "train"):
         image = batch["image"].to(self.device)
         label = batch["label"].to(self.device)
-        label = self.convert_labels(label).float()
+        label = self.convert_labels(label, phase).float()
         
         return image, label
 
-    def convert_labels(self, labels: torch.Tensor):
-        if self.label_smoothing:
-            if not self.include_background:
-                return labels[:, 1:, ...]
+    def convert_labels(self, labels: torch.Tensor, phase: str = "train"):
+        if phase == "train":
+            if self.label_smoothing:
+                if not self.include_background:
+                    return labels[:, 1:, ...]
             
-        elif self.one_hot:
+        elif phase == "val":
             new_labels = [labels == i for i in sorted(self.class_names.keys())]
             return torch.cat(new_labels, dim=1) 
         
         return labels
     
     def infer(self, batch) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        image, labels = self.get_input(batch)    
+        image, labels = self.get_input(batch, phase="val")    
         imgsz = (self.spatial_size, self.image_size, self.image_size)
         
         if self.model_type == ModelType.Diffusion:
