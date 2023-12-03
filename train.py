@@ -55,6 +55,7 @@ class Trainer(Engine):
         project_name: str = "diff-unet",
         wandb_name: str = None,
         include_background: str = False,
+        label_smoothing: bool = False,
         use_amp: bool = True,
         use_cache: bool = True,
         use_wandb: bool = True,
@@ -79,6 +80,7 @@ class Trainer(Engine):
             project_name=project_name,
             wandb_name=wandb_name,
             include_background=include_background,
+            label_smoothing=label_smoothing,
             use_amp=use_amp,
             use_cache=use_cache,
             use_wandb=use_wandb,
@@ -164,6 +166,7 @@ class Trainer(Engine):
         self.dataloader = get_dataloader(data_path=self.data_path,
                                          image_size=self.image_size,
                                          spatial_size=self.spatial_size,
+                                         num_classes=self.num_classes if self.include_background else self.num_classes + 1,
                                          num_workers=self.num_workers,
                                          batch_size=self.batch_size,
                                          mode="train")
@@ -235,7 +238,18 @@ class Trainer(Engine):
 
     def training_step(self, batch):
         image, label = self.get_input(batch)
+        B, C, W, H, D = label.shape
         
+        print(label.shape)
+        
+        i = 48
+        
+        for x in range(200, W):
+            for y in range(200, H):
+                if label[:, x, y, i][0] < 0.5:
+                    print("[labels]")
+                    print(label[0, :, x, y, i])
+            
         if self.model_type == ModelType.Diffusion:
             x_start = (label) * 2 - 1
             x_t, t, _ = self.model(x=x_start, pred_type="q_sample")
