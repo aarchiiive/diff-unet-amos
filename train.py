@@ -11,12 +11,15 @@ from torch.nn.parallel import DataParallel
 from monai.utils import set_determinism
 from monai.transforms import AsDiscrete
 
+# from medpy.metric.binary import hd, dc
+
 from light_training.utils.lr_scheduler import LinearWarmupCosineAnnealingLR
 
 from engine import Engine
 from models.utils.model_type import ModelType
 from models.diffusion import Diffusion
 from models import SwinDiffUNETR
+from metric import dice_coeff
 from utils import parse_args, get_dataloader
 
 set_determinism(123)
@@ -56,6 +59,7 @@ class Trainer(Engine):
         wandb_name: str = None,
         include_background: str = False,
         label_smoothing: bool = False,
+        smoothing_alpha: float = 0.3,
         use_amp: bool = True,
         use_cache: bool = True,
         use_wandb: bool = True,
@@ -80,7 +84,6 @@ class Trainer(Engine):
             project_name=project_name,
             wandb_name=wandb_name,
             include_background=include_background,
-            label_smoothing=label_smoothing,
             use_amp=use_amp,
             use_cache=use_cache,
             use_wandb=use_wandb,
@@ -96,6 +99,8 @@ class Trainer(Engine):
         self.log_dir = os.path.join("logs", log_dir)
         self.pretrained = pretrained_path is not None
         self.use_cache = use_cache
+        self.label_smoothing = label_smoothing
+        self.smothing_alpha = smoothing_alpha
         
         self.local_rank = 0
         self.start_epoch = 0
@@ -169,6 +174,8 @@ class Trainer(Engine):
                                          num_classes=self.num_classes if self.include_background else self.num_classes + 1,
                                          num_workers=self.num_workers,
                                          batch_size=self.batch_size,
+                                         label_smoothing=self.label_smoothing,
+                                         smoothing_alpha=self.smothing_alpha,
                                          mode="train")
     
     def train(self):
@@ -256,19 +263,31 @@ class Trainer(Engine):
             _, outputs, labels = self.infer(batch)
             
         dices = []
+        # monai ver.
+        # for i in range(self.num_classes):
+        #     output = outputs[:, i]
+        #     label = labels[:, i]
+        #     if output.sum() > 0 and label.sum() == 0:
+        #         dice = torch.Tensor([1.0]).to(outputs.device)
+        #     else:
+        #         self.dice_metric(output, label)
+        #         dice = self.dice_metric.aggregate()
+                
+        #     dices.append(dice)
+            
+        # self.dice_metric.reset()
+        
+        # medpy ver.
         for i in range(self.num_classes):
             output = outputs[:, i]
             label = labels[:, i]
             if output.sum() > 0 and label.sum() == 0:
                 dice = torch.Tensor([1.0]).to(outputs.device)
             else:
-                self.dice_metric(output, label)
-                dice = self.dice_metric.aggregate()
+                dice = dice_coeff(output, label)
                 
             dices.append(dice)
             
-        self.dice_metric.reset()
-        
         return torch.mean(torch.stack(dices))
     
     def validation_end(self, dices, epoch):
