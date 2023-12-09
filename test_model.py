@@ -1,5 +1,11 @@
+import time
+
 import torch
 import torch.nn as nn   
+
+from medpy.metric.binary import hd, dc, assd
+
+from metric import dice_coeff
 
 from models.swin_unetr import SwinUNETRDenoiser
 from models.swin_diff_unetr import SwinDiffUNETR
@@ -57,22 +63,22 @@ def test_dataset():
                 pixdim=(1.5, 1.5, 2.0),
                 mode=("bilinear", "nearest"),
             ),
-            transforms.RandScaleCropd(
-                keys=["image", "label"], 
-                roi_scale=[0.75, 0.85, 1.0],
-                random_size=False
-            ),
-            transforms.Resized(keys=["image", "label"], spatial_size=(96*2, 96*2, 96*2)),
-            # transforms.RandCropByPosNegLabeld(
-            #     keys=["image", "label"],
-            #     label_key="label",
-            #     spatial_size=(96, 96, 96),
-            #     pos=1,
-            #     neg=1,
-            #     num_samples=1,
-            #     image_key="image",
-            #     image_threshold=0,
+            # transforms.RandScaleCropd(
+            #     keys=["image", "label"], 
+            #     roi_scale=[0.75, 0.85, 1.0],
+            #     random_size=False
             # ),
+            # transforms.Resized(keys=["image", "label"], spatial_size=(96*2, 96*2, 96*2)),
+            transforms.RandCropByPosNegLabeld(
+                keys=["image", "label"],
+                label_key="label",
+                spatial_size=(96, 96, 96),
+                pos=1,
+                neg=1,
+                num_samples=1,
+                image_key="image",
+                image_threshold=0,
+            ),
             
             transforms.RandFlipd(keys=["image", "label"], prob=0.1, spatial_axis=0),
             transforms.RandFlipd(keys=["image", "label"], prob=0.1, spatial_axis=1),
@@ -96,7 +102,7 @@ def test_dataset():
     )
     dataloader = ThreadDataLoader(
         dataset=dataset,
-        num_workers=2,
+        num_workers=1,
         batch_size=1, 
         shuffle=True
     )
@@ -104,8 +110,86 @@ def test_dataset():
     for d in dataloader:
         print(d["image"].shape)
         print(d["label"].shape)
-        break
+        # break
+    
+    
+
+
+def dice_coeff(result: torch.Tensor, reference: torch.Tensor) -> torch.Tensor:
+    r"""
+    Dice coefficient
+    
+    Computes the Dice coefficient (also known as Sorensen index) between the binary
+    objects in two images.
+    
+    The metric is defined as
+    
+    .. math::
+        
+        DC=\frac{2|A\cap B|}{|A|+|B|}
+        
+    , where :math:`A` is the first and :math:`B` the second set of samples (here: binary objects).
+    
+    Parameters
+    ----------
+    result : torch.Tensor
+        Input data containing objects. Should be a torch tensor with dtype torch.bool,
+        where 0 represents background and 1 represents the object.
+    reference : torch.Tensor
+        Input data containing objects. Should be a torch tensor with dtype torch.bool,
+        where 0 represents background and 1 represents the object.
+    
+    Returns
+    -------
+    dc : float
+        The Dice coefficient between the object(s) in ```result``` and the
+        object(s) in ```reference```. It ranges from 0 (no overlap) to 1 (perfect overlap).
+        
+    Notes
+    -----
+    This is a real metric. The binary images can therefore be supplied in any order.
+    """
+    if isinstance(result, torch.FloatTensor) or result.dtype == torch.float:
+        intersection = torch.sum(result.bool() & reference.bool()).item()
+    elif isinstance(result, torch.LongTensor) or result.dtype == torch.int:
+        intersection = torch.sum(result & reference).item()
+    
+    size_i1 = torch.sum(result).item()
+    size_i2 = torch.sum(reference).item()
+    
+    try:
+        dc_value = 2. * intersection / float(size_i1 + size_i2)
+    except ZeroDivisionError:
+        dc_value = 0.0
+    
+    return torch.tensor(dc_value)
+    
+def test_dice():
+    t0 = time.time()
+    
+    device = torch.device("cuda:0")
+    
+    dices = []
+    num_classes = 13
+    outputs = torch.randint(0, 2, (1, 13, 96, 96, 96)).float().to(device)
+    labels = torch.randint(0, 2, (1, 13, 96, 96, 96)).float().to(device)
+    
+    for i in range(num_classes):
+        output = outputs[:, i]
+        label = labels[:, i]
+        if output.sum() > 0 and label.sum() == 0:
+            dice = torch.Tensor([1.0]).to(outputs.device)
+        else:
+            dice = dice_coeff(output, label)
+            
+        dices.append(dice)
+        
+    dices = torch.stack(dices)
+    
+    print(dices)
+    print(f"Time: {time.time() - t0:.4f}s")
     
 if __name__ == "__main__":
+    # test_dice()
     test_dataset()
     # test_model()
