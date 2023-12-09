@@ -38,7 +38,6 @@ class Engine:
         project_name: str = None,
         wandb_name: str = None,
         include_background: bool = False,
-        label_smoothing: bool = False,
         use_amp: bool = True,
         use_cache: bool = True,
         use_wandb: bool = True,
@@ -65,7 +64,6 @@ class Engine:
         self.project_name = project_name
         self.wandb_name = wandb_name
         self.include_background = include_background
-        self.label_smoothing = label_smoothing
         self.use_amp = use_amp
         self.use_cache = use_cache
         self.use_wandb = use_wandb
@@ -86,10 +84,10 @@ class Engine:
         
         if self.mode == "train":
             self.criterion = Loss(self.losses, 
-                              self.num_classes, 
-                              self.loss_combine, 
-                              self.one_hot,
-                              self.include_background)
+                                  self.num_classes, 
+                                  self.loss_combine, 
+                                  self.one_hot,
+                                  self.include_background)
             
         self.scaler = torch.cuda.amp.GradScaler()
         self.tensor2pil = transforms.ToPILImage()
