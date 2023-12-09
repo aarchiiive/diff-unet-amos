@@ -4,7 +4,7 @@ from monai.networks.nets.swin_unetr import SwinUNETR
 
 from models.diff_unet import DiffUNet
 from models.smooth_diff_unet import SmoothDiffUNet
-from models.swin_diff_unetr import SwinDiffUNETR
+from models.swin_diff_unetr import DiffSwinUNETR
 # from models.attention_unet import AttentionUNet
 from models.attention_diff_unet import AttentionDiffUNet
 
@@ -25,8 +25,8 @@ class ModelHub:
             )
         elif model_name == "attention_diff_unet":
             model = AttentionDiffUNet(**kwargs)
-        elif model_name == "swin_diff_unetr":
-            model = SwinDiffUNETR(
+        elif model_name == "diff_swin_unetr":
+            model = DiffSwinUNETR(
                 image_size=self.parse_image_size(**kwargs),
                 in_channels=kwargs['in_channels'],
                 out_channels=kwargs['out_channels'],
