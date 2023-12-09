@@ -54,6 +54,8 @@ def get_dataloader(
     num_workers: int = 8,
     batch_size: int = 1,
     cache_rate: float = 1.0,
+    label_smoothing: bool = False,
+    smoothing_alpha: float = 0.3,
     mode: str = "train", 
 ):
     transform = {}
@@ -72,29 +74,29 @@ def get_dataloader(
                 pixdim=(1.5, 1.5, 2.0),
                 mode=("bilinear", "nearest"),
             ),
-            transforms.RandScaleCropd(
-                keys=["image", "label"], 
-                roi_scale=[0.75, 0.85, 1.0],
-                random_size=False
-            ),
-            transforms.Resized(keys=["image", "label"], spatial_size=(spatial_size, image_size, image_size)),
-            # transforms.RandCropByPosNegLabeld(
-            #     keys=["image", "label"],
-            #     label_key="label",
-            #     spatial_size=(spatial_size, image_size, image_size),
-            #     pos=1,
-            #     neg=1,
-            #     num_samples=num_samples,
-            #     image_key="image",
-            #     image_threshold=0,
+            # transforms.RandScaleCropd(
+            #     keys=["image", "label"], 
+            #     roi_scale=[0.75, 0.85, 1.0],
+            #     random_size=False
             # ),
+            # transforms.Resized(keys=["image", "label"], spatial_size=(spatial_size, image_size, image_size)),
+            transforms.RandCropByPosNegLabeld(
+                keys=["image", "label"],
+                label_key="label",
+                spatial_size=(spatial_size, image_size, image_size),
+                pos=1,
+                neg=1,
+                num_samples=num_samples,
+                image_key="image",
+                image_threshold=0,
+            ),
             
             transforms.RandFlipd(keys=["image", "label"], prob=0.1, spatial_axis=0),
             transforms.RandFlipd(keys=["image", "label"], prob=0.1, spatial_axis=1),
             transforms.RandFlipd(keys=["image", "label"], prob=0.1, spatial_axis=2),
             transforms.RandRotate90d(keys=["image", "label"], prob=0.1, max_k=3),
 
-            # transforms.RandScaleIntensityd(keys=["image"], factors=0.1, prob=0.1),
+            transforms.RandScaleIntensityd(keys=["image"], factors=0.1, prob=0.1),
             transforms.RandShiftIntensityd(keys=["image"], offsets=0.1, prob=0.5),
             transforms.ToTensord(keys=["image", "label"]),
         ]
@@ -148,21 +150,24 @@ def get_dataloader(
         data = load_decathlon_datalist(os.path.join(data_path, "dataset.json"), True, parse_type(p))
         
         if p == "train":
-            dataset = LabelSmoothingCacheDataset(
-                data=data,
-                transform=transform[p],
-                cache_num=len(data),
-                cache_rate=cache_rate,
-                num_workers=max(num_workers, 20),
-                num_classes=num_classes,
-            )
-            # dataset = CacheDataset(
-            #     data=data,
-            #     transform=transform[p],
-            #     cache_num=len(data),
-            #     cache_rate=cache_rate,
-            #     num_workers=max(num_workers, 20),
-            # )
+            if label_smoothing:
+                dataset = LabelSmoothingCacheDataset(
+                    data=data,
+                    transform=transform[p],
+                    cache_num=len(data),
+                    cache_rate=cache_rate,
+                    num_workers=max(num_workers, 20),
+                    num_classes=num_classes,
+                    smoothing_alpha=smoothing_alpha,
+                )
+            else:
+                dataset = CacheDataset(
+                    data=data,
+                    transform=transform[p],
+                    cache_num=len(data),
+                    cache_rate=cache_rate,
+                    num_workers=max(num_workers, 20),
+                )
         else:
             dataset = CacheDataset(
                 data=data,
