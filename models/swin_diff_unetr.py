@@ -4,7 +4,7 @@ from .swin_unetr import SwinUNETREncoder, SwinUNETRDenoiser
 from .diffusion import Diffusion
 
 
-class SwinDiffUNETR(Diffusion):
+class DiffSwinUNETR(Diffusion):
     def __init__(
         self, 
         spatial_dims: int = 3,
