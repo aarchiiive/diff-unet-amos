@@ -39,12 +39,12 @@ class LabelSmoothingCacheDataset(CacheDataset):
         hash_func: Callable[..., bytes] = pickle_hashing,
         runtime_cache: bool | str | list | ListProxy = False,
         num_classes: int = 14,
-        smooth_alpha: float = 0.0,
+        smoothing_alpha: float = 0.3,
         smoothing_type: str = "distance",
         epsilon: float = 1e-6,
     ) -> None:
         self.num_classes = num_classes
-        self.smooth_alpha = smooth_alpha
+        self.smoothing_alpha = smoothing_alpha
         self.smoothing_type = smoothing_type
         self.epsilon = epsilon
         
@@ -105,7 +105,7 @@ class LabelSmoothingCacheDataset(CacheDataset):
         # Calculate distances with correct broadcasting
         distances = torch.norm(indices[None, None, :, :, :, :] - centroids, dim=-1)
         
-        labels = 1 / (distances.squeeze(1) + self.epsilon)
+        labels = 1 / (distances.squeeze(1) + self.epsilon) * self.smoothing_alpha
         labels = torch.abs(org - labels)
         
         # i = 48
@@ -113,10 +113,11 @@ class LabelSmoothingCacheDataset(CacheDataset):
         # for x in range(200, W):
         #     for y in range(200, H):
         #         if org[:, x, y, i][0] < 1:
+        #             print("="*200)
         #             print("[org]")
         #             print(org[:, x, y, i])
-        #             print("[distances]")
-        #             print(distances[:, 0, x, y, i])
+        #             # print("[distances]")
+        #             # print(distances[:, 0, x, y, i])
         #             print("[labels]")
         #             print(labels[:, x, y, i])
         
