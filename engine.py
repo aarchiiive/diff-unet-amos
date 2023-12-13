@@ -217,12 +217,16 @@ class Engine:
     def log_plot(self, 
                  vis_data: dict, 
                  mean_dice: float, 
-                 mean_hd95: float, 
-                 mean_iou: float, 
+                #  mean_hd95: float, 
+                #  mean_iou: float, 
                  dices: Sequence[float], 
                  filename: str):
-        patient = os.path.basename(filename).split(".")[0]
         
+        if filename is not None:
+            patient = os.path.basename(filename).split(".")[0]
+        else:
+            patient = 'test'
+                    
         plot = wandb.Image(
             vis_data["image"],
             masks={
@@ -237,7 +241,8 @@ class Engine:
             },
         )
         
-        self.table.add_data(*([patient, plot, mean_dice, mean_hd95, mean_iou]+[d for d in dices.values()]))
+        # self.table.add_data(*([patient, plot, mean_dice, mean_hd95, mean_iou]+[d for d in dices.values()]))
+        self.table.add_data(*([patient, plot, mean_dice]+[d for d in dices.values()]))
         
         # wandb.log({"table": self.table})
         # self.table = wandb.Table(columns=["patient", "image", "dice"]+[n for n in self.class_names.values()])
