@@ -4,7 +4,7 @@ from monai.networks.nets.swin_unetr import SwinUNETR
 
 from models.diff_unet import DiffUNet
 from models.smooth_diff_unet import SmoothDiffUNet
-from models.swin_diff_unetr import DiffSwinUNETR
+from models.diff_swin_unetr import DiffSwinUNETR
 # from models.attention_unet import AttentionUNet
 from models.attention_diff_unet import AttentionDiffUNet
 
