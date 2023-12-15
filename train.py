@@ -84,6 +84,7 @@ class Trainer(Engine):
             project_name=project_name,
             wandb_name=wandb_name,
             include_background=include_background,
+            label_smoothing=label_smoothing,
             use_amp=use_amp,
             use_cache=use_cache,
             use_wandb=use_wandb,
@@ -99,7 +100,6 @@ class Trainer(Engine):
         self.log_dir = os.path.join("logs", log_dir)
         self.pretrained = pretrained_path is not None
         self.use_cache = use_cache
-        self.label_smoothing = label_smoothing
         self.smothing_alpha = smoothing_alpha
         
         self.local_rank = 0
