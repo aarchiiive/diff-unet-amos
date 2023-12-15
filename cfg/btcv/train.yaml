@@ -23,12 +23,12 @@ num_workers: 2
 device_ids: null # 0 # ,1,2,3,4
 project_name: diff-unet-main
 wandb_name: null
-log_dir: diff-swin-unetr-btcv-5
-losses: mse,bce,dice # ,multi_neighbor # e.g ce,mse,bce,dice,focal,boundary,dice_ce,dice_focal,generalized_dice,multi_neighbor,hausdorff_er,generalized_wasserstein_dice
+log_dir: diff-swin-unetr-btcv-10
+losses: mse,bce,dice_focal # ,multi_neighbor # e.g ce,mse,bce,dice,focal,boundary,dice_ce,dice_focal,generalized_dice,multi_neighbor,hausdorff_er,generalized_wasserstein_dice
 loss_combine: sum # sum / mean / log
 include_background: false
 label_smoothing: true
-smoothing_alpha: 0.5
+smoothing_alpha: 0.1
 use_wandb: true  # false
 use_amp: false  # true
 use_cache: false  # true
