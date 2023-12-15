@@ -13,6 +13,7 @@ import torch
 from monai.utils import set_determinism
 
 from engine import Engine
+from metric import dice_coeff
 from utils import parse_args, get_dataloader
 
 set_determinism(123)
@@ -59,10 +60,17 @@ class Tester(Engine):
             mode="test",
         )
         self.epoch = epoch
+        self.sw_batch_size = sw_batch_size
+        self.overlap = overlap
         self.model = self.load_model()
         self.log_dir = os.path.dirname(os.path.dirname(model_path))
         self.save_name = os.path.basename(model_path).split(".")[0]
         self.dices = []
+        self.images = []
+        self.outputs = []
+        self.labels = []
+        
+        self.patient_index = 0
         
         self.load_checkpoint(model_path)
         self.set_dataloader()    
@@ -105,14 +113,18 @@ class Tester(Engine):
         print("="*100)
         print(f"results : {np.mean(dices):.4f}")
         
-        self.save_score()
+        self.save_results()
     
     def validation_step(self, batch):
         with torch.cuda.amp.autocast(self.use_amp):
-            image, outputs, labels = self.infer(batch)
+            images, outputs, labels = self.infer(batch)
+            
+        # _, _, d, w, h = labels.shape
+        # images = torch.nn.functional.interpolate(images, mode="nearest", size=(d, w, h))
+        # output = torch.nn.functional.interpolate(output, mode="nearest", size=(d, w, h))
         
         if self.use_wandb:
-            vis_data = self.tensor2images(image, labels, outputs, image.shape) # put appropriate index
+            vis_data = self.tensor2images(images, labels, outputs, images.shape) # put appropriate index
             
         dices = OrderedDict({v : 0 for v in self.class_names.values()})
         hds = OrderedDict({v : 0 for v in self.class_names.values()})
@@ -120,28 +132,58 @@ class Tester(Engine):
         
         classes = list(self.class_names.values())
         
+        # for i in range(self.num_classes):
+        #     output = outputs[:, i]
+        #     label = labels[:, i]
+        #     if output.sum() > 0 and label.sum() == 0:
+        #         dice = 1
+        #     else:
+        #         self.dice_metric(output, label)
+        #         dice = self.dice_metric.aggregate().item()
+            
+        #     dices[classes[i]] = dice
+        #     print(f"{classes[i]} : {dice:.4f}")
+
+        # self.dice_metric.reset()
+        
+        # medpy ver.
         for i in range(self.num_classes):
             output = outputs[:, i]
             label = labels[:, i]
             if output.sum() > 0 and label.sum() == 0:
                 dice = 1
             else:
-                self.dice_metric(output, label)
-                dice = self.dice_metric.aggregate().item()
+                dice = dice_coeff(output, label).to(outputs.device).item()
             
             dices[classes[i]] = dice
             print(f"{classes[i]} : {dice:.4f}")
-
-        self.dice_metric.reset()
+            
         self.dices.append(dices)
+        self.images.append(images)
+        self.outputs.append(outputs)
+        self.labels.append(labels)
+        
         mean_dice = np.mean(list(dices.values()))
         print(f"mean dice : {mean_dice:.4f}")
         
+        # if self.use_wandb:
+        #     self.log_plot(vis_data, mean_dice, dices, filename=str(self.patient_index))
+        #     self.log("mean_dice", mean_dice)
+        
+        self.patient_index += 1
+        
         return mean_dice
         
-    def save_score(self):
-        with open(os.path.join(self.log_dir, f'dice_{self.save_name}.pkl'), 'wb') as file:
-            pickle.dump(self.dices, file)
+    def save_results(self):
+        results = {
+            "images": self.images,
+            "dices": self.dices,
+            "labels": self.labels,
+            "outputs": self.outputs,
+        }
+        
+        with open(os.path.join(self.log_dir, f'results.pkl'), 'wb') as file:
+            pickle.dump(results, file)
 
       
 
