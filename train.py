@@ -18,7 +18,7 @@ from light_training.utils.lr_scheduler import LinearWarmupCosineAnnealingLR
 from engine import Engine
 from models.utils.model_type import ModelType
 from models.diffusion import Diffusion
-from models import SwinDiffUNETR
+from models import DiffSwinUNETR
 from metric import dice_coeff
 from utils import parse_args, get_dataloader
 
@@ -157,7 +157,7 @@ class Trainer(Engine):
         
     def load_pretrained_weights(self, pretrained_path):
         if self.model_type == ModelType.Diffusion and isinstance(self.model, Diffusion):
-            if isinstance(self.model, SwinDiffUNETR) and os.path.basename(pretrained_path) == 'swinvit.pt': 
+            if isinstance(self.model, DiffSwinUNETR) and os.path.basename(pretrained_path) == 'swinvit.pt': 
                 self.model.embed_model.swinViT.load_state_dict(torch.load(pretrained_path, map_location="cpu"))
                 print(f"Load pretrained weights from {pretrained_path} to swinViT layer")
             else:
@@ -282,9 +282,9 @@ class Trainer(Engine):
             output = outputs[:, i]
             label = labels[:, i]
             if output.sum() > 0 and label.sum() == 0:
-                dice = torch.Tensor([1.0]).to(outputs.device)
+                dice = torch.Tensor([1.0]).squeeze().to(outputs.device)
             else:
-                dice = dice_coeff(output, label)
+                dice = dice_coeff(output, label).to(outputs.device)
                 
             dices.append(dice)
             
