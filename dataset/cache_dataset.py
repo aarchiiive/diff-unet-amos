@@ -105,23 +105,15 @@ class LabelSmoothingCacheDataset(CacheDataset):
         # Calculate distances with correct broadcasting
         distances = torch.norm(indices[None, None, :, :, :, :] - centroids, dim=-1)
         
-        labels = 1 / (distances.squeeze(1) + self.epsilon) * self.smoothing_alpha
+        # labels = 1 / (distances.squeeze(1) + self.epsilon) * self.smoothing_alpha
+        labels = self.damped_sine_wave(distances.squeeze(1)) * self.smoothing_alpha # wandb : diff-swin-unetr-btcv-10
         labels = torch.abs(org - labels)
         
-        # i = 48
-        
-        # for x in range(200, W):
-        #     for y in range(200, H):
-        #         if org[:, x, y, i][0] < 1:
-        #             print("="*200)
-        #             print("[org]")
-        #             print(org[:, x, y, i])
-        #             # print("[distances]")
-        #             # print(distances[:, 0, x, y, i])
-        #             print("[labels]")
-        #             print(labels[:, x, y, i])
-        
         return labels
+    
+    def damped_sine_wave(self, x: torch.Tensor, lambda_decay=0.05, omega=0.1, phi=0) -> torch.Tensor:
+        signal = torch.exp(-lambda_decay * x) * torch.sin(omega * x + phi)
+        return signal
     
     def _load_cache_item(self, idx: int):
         """
