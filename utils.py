@@ -61,7 +61,7 @@ def get_dataloader(
     transform = {}
     transform["train"] = transforms.Compose(
         [   
-            # transforms.LoadImaged(keys=["image", "label"], ensure_channel_first=True),
+            # transforms.LoadImaged(keys=["image", "label"], ensure_channel_first=True), # *** turn off if using label smoothing *** 
             transforms.ScaleIntensityRanged(
                 keys=["image"], a_min=-175, a_max=250.0, b_min=0, b_max=1.0, clip=True
             ),
