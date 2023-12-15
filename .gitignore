@@ -4,6 +4,7 @@
 *.pth
 *.pyc
 *.pkl
+*.mp4
 
 logs/*
 wandb/*
