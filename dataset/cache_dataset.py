@@ -142,3 +142,55 @@ class LabelSmoothingCacheDataset(CacheDataset):
         if self.as_contiguous:
             item = convert_to_contiguous(item, memory_format=torch.contiguous_format)
         return item
+    
+    
+class ValidCacheDataset(CacheDataset):
+    def __init__(
+        self,
+        data: Sequence,
+        transform: Sequence[Callable] | Callable | None = None,
+        cache_num: int = sys.maxsize,
+        cache_rate: float = 1.0,
+        num_workers: int | None = 1,
+        progress: bool = True,
+        copy_cache: bool = True,
+        as_contiguous: bool = True,
+        hash_as_key: bool = False,
+        hash_func: Callable[..., bytes] = pickle_hashing,
+        runtime_cache: bool | str | list | ListProxy = False,
+    ) -> None:
+        self.image_loader = transforms.Compose([
+            LoadImaged(keys=["image", "label"], ensure_channel_first=True),
+        ])
+        
+        super().__init__(
+            data=data,
+            transform=transform,
+            cache_num=cache_num,
+            cache_rate=cache_rate,
+            num_workers=num_workers,
+            progress=progress,
+            copy_cache=copy_cache,
+            as_contiguous=as_contiguous,
+            hash_as_key=hash_as_key,
+            hash_func=hash_func,
+            runtime_cache=runtime_cache,
+        )
+    
+    def _load_cache_item(self, idx: int):
+        """
+        Args:
+            idx: the index of the input data sequence.
+        """
+        item = self.data[idx]
+        item = self.image_loader(item)
+        item['raw_label'] = item['label']
+        
+        first_random = self.transform.get_index_of_first(
+            lambda t: isinstance(t, RandomizableTrait) or not isinstance(t, Transform)
+        )
+        item = self.transform(item, end=first_random, threading=True)
+
+        if self.as_contiguous:
+            item = convert_to_contiguous(item, memory_format=torch.contiguous_format)
+        return item
