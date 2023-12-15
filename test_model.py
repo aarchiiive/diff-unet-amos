@@ -8,7 +8,7 @@ from medpy.metric.binary import hd, dc, assd
 from metric import dice_coeff
 
 from models.swin_unetr import SwinUNETRDenoiser
-from models.swin_diff_unetr import SwinDiffUNETR
+from models.diff_swin_unetr import DiffSwinUNETR
 
 def test_model():   
     device = torch.device("cpu")
@@ -20,7 +20,7 @@ def test_model():
     embeddings = torch.randn((1, 13, 96, 96, 96)).to(device)
 
     # model = SwinUNETRDenoiser(img_size=96, in_channels=1, out_channels=13)
-    model = SwinDiffUNETR(out_channels=13, feature_size=48).to(device)
+    model = DiffSwinUNETR(out_channels=13, feature_size=48).to(device)
 
     model.embed_model.swinViT.load_state_dict(torch.load("pretrained/swin_unetr/swinvit.pt"))
 
@@ -180,16 +180,20 @@ def test_dice():
         if output.sum() > 0 and label.sum() == 0:
             dice = torch.Tensor([1.0]).to(outputs.device)
         else:
-            dice = dice_coeff(output, label)
+            dice = dice_coeff(output, label).to(outputs.device)
             
         dices.append(dice)
+        dices.append(torch.Tensor([1.0]).squeeze().to(outputs.device))
         
+    
+    print(dices)
+    
     dices = torch.stack(dices)
     
     print(dices)
     print(f"Time: {time.time() - t0:.4f}s")
     
 if __name__ == "__main__":
-    # test_dice()
-    test_dataset()
+    test_dice()
+    # test_dataset()
     # test_model()
