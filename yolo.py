@@ -1,5 +1,6 @@
 import os
 import glob
+import shutil
 from copy import deepcopy
 
 import cv2
@@ -84,6 +85,7 @@ class Visual(Results):
 
         # Plot Detect results
         if pred_boxes and show_boxes:
+            # print(pred_boxes)
             for d in reversed(pred_boxes):
                 w, h = d.xywh[:, 2:].cpu().tolist()[0]
                 size = max(w*pixdim[1], h*pixdim[2])
@@ -93,12 +95,18 @@ class Visual(Results):
                 label = f'{name}({size*0.1:.2f}cm)'
                 annotator.box_label(d.xyxy.squeeze(), label, color=colors(c, True))
 
+                # if conf < 0.5:
+                #     return None
+                
+
         # Plot Classify results
         if pred_probs is not None and show_probs:
             text = ',\n'.join(f'{names[j] if names else j} {pred_probs.data[j]:.2f}' for j in pred_probs.top5)
             x = round(self.orig_shape[0] * 0.03)
             annotator.text([x, x], text, txt_color=(255, 255, 255))  # TODO: allow setting colors
-
+        else:
+            return None
+        
         return annotator.result()
 
 
@@ -109,7 +117,10 @@ if __name__ == "__main__":
     videos = glob.glob(data_path)
     nii_images = os.listdir(nii_path)
     
-    os.makedirs("results", exist_ok=True)
+    output_path = "yolo"
+    
+    shutil.rmtree(output_path, ignore_errors=True)
+    os.makedirs(output_path, exist_ok=True)
     
     alpha = 0.7
     label_color = (255, 0, 0)
@@ -143,14 +154,17 @@ if __name__ == "__main__":
                     keypoints=output.keypoints,
                 )
                 result = output.plot(conf=True, pixdim=pixdim)
-                label = labels[:, :, i]
-                
-                if len(np.unique(label)) > 1:
-                    # label = cv2.cvtColor(label, cv2.COLOR_GRAY2RGB)
-                    mask = np.zeros_like(result)
-                    mask[label == 1] = label_color
-                    result = cv2.addWeighted(result, 0.8, mask, alpha, 0.0)
-                
-                cv2.imwrite(os.path.join("results", os.path.basename(video).split(".")[0]+f"_{i}.jpg"), result)
+                if result is not None:
+                    label = labels[:, :, i]
+                    
+                    if len(np.unique(label)) > 1:
+                        # label = cv2.cvtColor(label, cv2.COLOR_GRAY2RGB)
+                        mask = np.zeros_like(result)
+                        mask[label == 1] = label_color
+                        result = cv2.addWeighted(result, 0.8, mask, alpha, 0.0)
+                    
+                        cv2.imwrite(os.path.join(output_path, os.path.basename(video).split(".")[0]+f"_{i}.jpg"), result)
+                # else:
+                    # print(result)
                 
                 i += 1
