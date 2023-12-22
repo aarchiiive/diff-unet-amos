@@ -63,7 +63,7 @@ def get_dataloader(
         [   
             # transforms.LoadImaged(keys=["image", "label"], ensure_channel_first=True), # *** turn off if using label smoothing *** 
             transforms.ScaleIntensityRanged(
-                keys=["image"], a_min=-175, a_max=250.0, b_min=0, b_max=1.0, clip=True
+                keys=["image"], a_min=-2000, a_max=2000, b_min=0, b_max=1.0, clip=True
             ),
             transforms.CropForegroundd(
                 keys=["image", "label"], source_key="image"
@@ -106,7 +106,7 @@ def get_dataloader(
         [   
             transforms.LoadImaged(keys=["image", "label"], ensure_channel_first=True),
             transforms.ScaleIntensityRanged(
-                keys=["image"], a_min=-175, a_max=250.0, b_min=0, b_max=1.0, clip=True
+                keys=["image"], a_min=-2000, a_max=2000, b_min=0, b_max=1.0, clip=True
             ),
             transforms.CropForegroundd(keys=["image", "label"], source_key="image"),
             transforms.Orientationd(keys=["image", "label"], axcodes="RAS"),
@@ -124,8 +124,8 @@ def get_dataloader(
         [   
             transforms.LoadImaged(keys=["image"], ensure_channel_first=True),
             transforms.ScaleIntensityRanged(
-                keys=["image"], a_min=-175, a_max=250.0, b_min=0, b_max=1.0, clip=True
-            ),            
+                keys=["image"], a_min=-2000, a_max=2000, b_min=0, b_max=1.0, clip=True
+            ),
             transforms.ToTensord(keys=["image"]),
         ]
     )
