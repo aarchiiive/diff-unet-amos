@@ -156,7 +156,7 @@ class Engine:
 
     def convert_labels(self, labels: torch.Tensor, phase: str = "train"):
         if not self.include_background:
-            if self.label_smoothing:
+            if self.label_smoothing and phase == "train":
                 return labels[:, 1:, ...]
             else:
                 new_labels = [labels == i for i in sorted(self.class_names.keys())]
