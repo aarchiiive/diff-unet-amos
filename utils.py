@@ -110,6 +110,7 @@ def get_dataloader(
     cache_rate: float = 1.0,
     label_smoothing: bool = False,
     smoothing_alpha: float = 0.3,
+    smoothing_order: float = 1.0,
     mode: str = "train", 
 ):
     transform = {}
@@ -124,22 +125,22 @@ def get_dataloader(
                 keys=["image"], a_min=-175, a_max=250.0, b_min=0, b_max=1.0, clip=True
             ),
             transforms.CropForegroundd(
-                keys=keys, source_key="image"
+                keys=["image", "label"], source_key="image"
             ),
-            transforms.Orientationd(keys=keys, axcodes="RAS"),
-            # transforms.Spacingd(
-            #     keys=keys,
-            #     pixdim=(1.5, 1.5, 2.0),
-            #     mode=interpolations,
+            transforms.Orientationd(keys=["image", "label"], axcodes="RAS"),
+            transforms.Spacingd(
+                keys=["image", "label"],
+                pixdim=(1.5, 1.5, 2.0),
+                mode=("bilinear", "nearest"),
+            ),
+            # transforms.RandScaleCropd(
+            #     keys=["image", "label"], 
+            #     roi_scale=[0.75, 0.85, 1.0],
+            #     random_size=False
             # ),
-            # # transforms.RandScaleCropd(
-            # #     keys=["image", "label"], 
-            # #     roi_scale=[0.75, 0.85, 1.0],
-            # #     random_size=False
-            # # ),
-            # # transforms.Resized(keys=["image", "label"], spatial_size=(spatial_size, image_size, image_size)),
+            # transforms.Resized(keys=["image", "label"], spatial_size=(spatial_size, image_size, image_size)),
             transforms.RandCropByPosNegLabeld(
-                keys=keys,
+                keys=["image", "label"],
                 label_key="label",
                 spatial_size=(spatial_size, image_size, image_size),
                 pos=1,
@@ -149,14 +150,14 @@ def get_dataloader(
                 image_threshold=0,
             ),
             
-            transforms.RandFlipd(keys=keys, prob=0.1, spatial_axis=0),
-            transforms.RandFlipd(keys=keys, prob=0.1, spatial_axis=1),
-            transforms.RandFlipd(keys=keys, prob=0.1,  spatial_axis=2),
-            transforms.RandRotate90d(keys=keys, prob=0.1, max_k=3),
+            transforms.RandFlipd(keys=["image", "label"], prob=0.1, spatial_axis=0),
+            transforms.RandFlipd(keys=["image", "label"], prob=0.1, spatial_axis=1),
+            transforms.RandFlipd(keys=["image", "label"], prob=0.1, spatial_axis=2),
+            transforms.RandRotate90d(keys=["image", "label"], prob=0.1, max_k=3),
 
             transforms.RandScaleIntensityd(keys=["image"], factors=0.1, prob=0.1),
             transforms.RandShiftIntensityd(keys=["image"], offsets=0.1, prob=0.5),
-            transforms.ToTensord(keys=keys),
+            transforms.ToTensord(keys=["image", "label"]),
         ]
     )
     
@@ -217,6 +218,7 @@ def get_dataloader(
                     num_workers=max(num_workers, 20),
                     num_classes=num_classes,
                     smoothing_alpha=smoothing_alpha,
+                    smoothing_order=smoothing_order,
                 )
             else:
                 dataset = CacheDataset(

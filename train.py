@@ -60,6 +60,7 @@ class Trainer(Engine):
         include_background: str = False,
         label_smoothing: bool = False,
         smoothing_alpha: float = 0.3,
+        smoothing_order: float = 1.0,
         use_amp: bool = True,
         use_cache: bool = True,
         use_wandb: bool = True,
@@ -101,6 +102,7 @@ class Trainer(Engine):
         self.pretrained = pretrained_path is not None
         self.use_cache = use_cache
         self.smothing_alpha = smoothing_alpha
+        self.smoothing_order = smoothing_order
         
         self.local_rank = 0
         self.start_epoch = 0
@@ -172,15 +174,18 @@ class Trainer(Engine):
             print(f"Load pretrained weights from {pretrained_path}")
             
     def set_dataloader(self):
-        self.dataloader = get_dataloader(data_path=self.data_path,
-                                         image_size=self.image_size,
-                                         spatial_size=self.spatial_size,
-                                         num_classes=self.num_classes if self.include_background else self.num_classes + 1,
-                                         num_workers=self.num_workers,
-                                         batch_size=self.batch_size,
-                                         label_smoothing=self.label_smoothing,
-                                         smoothing_alpha=self.smothing_alpha,
-                                         mode="train")
+        self.dataloader = get_dataloader(
+            data_path=self.data_path,
+            image_size=self.image_size,
+            spatial_size=self.spatial_size,
+            num_classes=self.num_classes if self.include_background else self.num_classes + 1,
+            num_workers=self.num_workers,
+            batch_size=self.batch_size,
+            label_smoothing=self.label_smoothing,
+            smoothing_alpha=self.smothing_alpha,
+            smoothing_order=self.smoothing_order,
+            mode="train"
+        )
     
     def train(self):
         set_determinism(1234 + self.local_rank)
@@ -248,11 +253,7 @@ class Trainer(Engine):
                             save_path=os.path.join(self.weights_path, f"epoch_{epoch+1}.pt"))
 
     def training_step(self, batch):
-        if self.label_smoothing:
-            images, labels, distances = self.get_input(batch)
-            print(images.shape, labels.shape, distances.shape)
-        else:
-            images, labels = self.get_input(batch)
+        images, labels = self.get_input(batch)
         
         if self.model_type == ModelType.Diffusion:
             x_start = (labels) * 2 - 1
@@ -261,10 +262,10 @@ class Trainer(Engine):
         else:
             preds = self.model(images)
 
-        return self.compute_loss(preds, labels, distances) 
+        return self.compute_loss(preds, labels) 
     
     def compute_loss(self, preds, labels, distances=None):
-        if self.label_smoothing: labels = self.label_smoother(labels, distances)
+        # if self.label_smoothing: labels = self.label_smoother(labels, distances)
         
         return self.criterion(preds, labels) 
     
@@ -305,11 +306,13 @@ class Trainer(Engine):
         if mean_dice > self.best_mean_dice:
             self.best_mean_dice = mean_dice
             if mean_dice > 0.5:
-                self.save_model(model=self.model,
-                                optimizer=self.optimizer,
-                                scheduler=self.scheduler,
-                                epoch=self.epoch,
-                                save_path=os.path.join(self.weights_path, f"best_{mean_dice:.4f}.pt"))
+                self.save_model(
+                    model=self.model,
+                    optimizer=self.optimizer,
+                    scheduler=self.scheduler,
+                    epoch=self.epoch,
+                    save_path=os.path.join(self.weights_path, f"best_{mean_dice:.4f}.pt")
+                )
 
         print(f"mean_dice : {mean_dice:.4f}")
         self.log("mean_dice", mean_dice, epoch)

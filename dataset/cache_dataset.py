@@ -41,11 +41,13 @@ class LabelSmoothingCacheDataset(CacheDataset):
         runtime_cache: bool | str | list | ListProxy = False,
         num_classes: int = 14,
         smoothing_alpha: float = 0.3,
+        smoothing_order: float = 1.0,
         smoothing_type: str = "distance",
         epsilon: float = 1e-6,
     ) -> None:
         self.num_classes = num_classes
         self.smoothing_alpha = smoothing_alpha
+        self.smoothing_order = smoothing_order
         self.smoothing_type = smoothing_type
         self.epsilon = epsilon
         
@@ -99,9 +101,8 @@ class LabelSmoothingCacheDataset(CacheDataset):
         return distances_dict
     
     def label_smoothing(self, labels: torch.Tensor) -> torch.Tensor:
-        org = labels
         labels = F.one_hot(labels.long(), num_classes=self.num_classes).permute(0, 4, 1, 2, 3).float()
-        # org = labels.squeeze(0)
+        org = labels.squeeze(0)
         B, C, W, H, D = labels.shape
         
         # Pre-compute all indices
@@ -136,18 +137,20 @@ class LabelSmoothingCacheDataset(CacheDataset):
         centroids = centroids[:, None, None, None, None, :]
 
         # Calculate distances with correct broadcasting
-        distances = torch.norm(indices[None, None, :, :, :, :] - centroids, dim=-1).squeeze(1).unsqueeze(0)
+        distances = torch.norm(indices[None, None, :, :, :, :] - centroids, dim=-1)
         
-        # labels = 1 / (distances.squeeze(1) + self.epsilon) * self.smoothing_alpha
-        # labels = self.damped_sine_wave(distances.squeeze(1)) * self.smoothing_alpha # wandb : diff-swin-unetr-btcv-10
+        labels = self.rational(distances.squeeze(1)) * self.smoothing_alpha
+        # labels = self.damped_sine(distances.squeeze(1)) * self.smoothing_alpha # wandb : diff-swin-unetr-btcv-10
+        labels = torch.abs(org - labels)
         
-        # labels = torch.abs(org - labels)
-        
-        return distances
+        return labels
     
-    def damped_sine_wave(self, x: torch.Tensor, lambda_decay=0.05, omega=0.1, phi=0) -> torch.Tensor:
-        signal = torch.exp(-lambda_decay * x) * torch.sin(omega * x + phi)
-        return signal
+    def rational(self, x: torch.Tensor) -> torch.Tensor:
+        # return 1 / (x + self.epsilon)
+        return 1 / (x.pow(self.smoothing_order) + self.epsilon)
+    
+    def damped_sine(self, x: torch.Tensor, lambda_decay: float = 0.05, omega: float = 0.1, phi: float = 0) -> torch.Tensor:
+        return torch.exp(-lambda_decay * x) * torch.sin(omega * x + phi)
     
     def _load_cache_item(self, idx: int):
         """
@@ -158,33 +161,15 @@ class LabelSmoothingCacheDataset(CacheDataset):
         item = self.image_loader(item)
         
         if self.smoothing_type == "distance":
-            for k, v in self.compute_distance(item['label']).items():
-                item[k] = v
+            item['label'] = self.label_smoothing(item['label'])
             
-        # print(self.data[idx], item['image'].shape, item['label'].shape, item['distance_0'].shape)
+        print(item['image'].shape, item['label'].shape) 
             
         first_random = self.transform.get_index_of_first(
             lambda t: isinstance(t, RandomizableTrait) or not isinstance(t, Transform)
         )
         item = self.transform(item, end=first_random, threading=True)
-        
-        print("After transform:", item['image'].shape, item['label'].shape, item['distance_0'].shape, item['distance_1'].shape)
-        
+
         if self.as_contiguous:
             item = convert_to_contiguous(item, memory_format=torch.contiguous_format)
         return item
-    
-    def __getitem__(self, index: int | slice | Sequence[int]):
-        """
-        Returns a `Subset` if `index` is a slice or Sequence, a data item otherwise.
-        """
-        if isinstance(index, slice):
-            # dataset[:42]
-            start, stop, step = index.indices(len(self))
-            indices = range(start, stop, step)
-            return Subset(dataset=self, indices=indices)
-        if isinstance(index, collections.abc.Sequence):
-            # dataset[[1, 3, 4]]
-            return Subset(dataset=self, indices=index)
-        return self._transform(index)
-    

@@ -151,20 +151,16 @@ class Engine:
         image = batch["image"].to(self.device)
         label = batch["label"].to(self.device)
         label = self.convert_labels(label, phase).float()
-        if self.label_smoothing: 
-            distance = torch.cat([batch[f"distance_{i}"] for i in range(self.num_classes)], dim=0).to(self.device)
-            if not self.include_background: distance = distance[:, 1:, ...]
-            return image, label, distance
         
         return image, label
 
     def convert_labels(self, labels: torch.Tensor, phase: str = "train"):
         if not self.include_background:
-            # if self.label_smoothing and phase == "train":
-            #     return labels[:, 1:, ...]
-            # else:
-            new_labels = [labels == i for i in sorted(self.class_names.keys())]
-            return torch.cat(new_labels, dim=1) 
+            if self.label_smoothing and phase == "train":
+                return labels[:, 1:, ...]
+            else:
+                new_labels = [labels == i for i in sorted(self.class_names.keys())]
+                return torch.cat(new_labels, dim=1) 
         
         return labels
     
