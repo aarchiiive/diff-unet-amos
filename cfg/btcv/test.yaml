@@ -6,10 +6,10 @@ overlap: 0.8
 image_size: 96
 spatial_size: 96
 classes: cfg/btcv/classes.yaml
-device: cuda:4
-model_path: logs/diff-swin-unetr-btcv-1/weights/best_0.8301.pt
+device: cuda:1
+model_path: logs/diff-swin-unetr-btcv-10/weights/best_0.8204.pt
 project_name: diff-unet-test
-wandb_name: diff-swin-unetr-btcv-1
+wandb_name: diff-swin-unetr-btcv-10
 include_background: false
 use_wandb: false  # true
 use_cache: false
