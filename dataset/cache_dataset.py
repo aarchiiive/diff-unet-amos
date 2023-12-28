@@ -163,8 +163,6 @@ class LabelSmoothingCacheDataset(CacheDataset):
         if self.smoothing_type == "distance":
             item['label'] = self.label_smoothing(item['label'])
             
-        print(item['image'].shape, item['label'].shape) 
-            
         first_random = self.transform.get_index_of_first(
             lambda t: isinstance(t, RandomizableTrait) or not isinstance(t, Transform)
         )
