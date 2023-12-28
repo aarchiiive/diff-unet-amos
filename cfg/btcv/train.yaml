@@ -29,7 +29,7 @@ loss_combine: sum # sum / mean / log
 include_background: false
 label_smoothing: true
 smoothing_alpha: 0.1
-smoothing_order: 2
+smoothing_order: 1.5
 use_wandb: true  # false
 use_amp: false  # true
 use_cache: false  # true
