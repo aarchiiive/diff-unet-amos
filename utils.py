@@ -1,17 +1,22 @@
+from __future__ import annotations
 from typing import Dict, Sequence, Union, Tuple
 
 import os
 import glob 
+import json
 import yaml
 import argparse
+from pathlib import Path
 from prettytable import PrettyTable
 from collections import OrderedDict
 
+from monai.config import KeysCollection, PathLike
 from monai import transforms
+from monai.data.decathlon_datalist import _append_paths
 from monai.data import (
     ThreadDataLoader,
     CacheDataset,
-    load_decathlon_datalist,
+    # load_decathlon_datalist,
 )
 
 from dataset.cache_dataset import LabelSmoothingCacheDataset
@@ -45,6 +50,55 @@ def get_class_names(classes: Dict[int, str], include_background: bool = False, b
         if not include_background: del classes[0]
         return classes
 
+
+def load_decathlon_datalist(
+    data_list_file_path: PathLike,
+    is_segmentation: bool = True,
+    data_list_key: str = "training",
+    base_dir: PathLike | None = None,
+) -> list[dict]:
+    """Load image/label paths of decathlon challenge from JSON file
+
+    Json file is similar to what you get from http://medicaldecathlon.com/
+    Those dataset.json files
+
+    Args:
+        data_list_file_path: the path to the json file of datalist.
+        is_segmentation: whether the datalist is for segmentation task, default is True.
+        data_list_key: the key to get a list of dictionary to be used, default is "training".
+        base_dir: the base directory of the dataset, if None, use the datalist directory.
+
+    Raises:
+        ValueError: When ``data_list_file_path`` does not point to a file.
+        ValueError: When ``data_list_key`` is not specified in the data list file.
+
+    Returns a list of data items, each of which is a dict keyed by element names, for example:
+
+    .. code-block::
+
+        [
+            {'image': '/workspace/data/chest_19.nii.gz',  'label': 0},
+            {'image': '/workspace/data/chest_31.nii.gz',  'label': 1}
+        ]
+
+    """
+    data_list_file_path = Path(data_list_file_path)
+    if not data_list_file_path.is_file():
+        raise ValueError(f"Data list file {data_list_file_path} does not exist.")
+    with open(data_list_file_path) as json_file:
+        json_data = json.load(json_file)
+    if data_list_key not in json_data:
+        raise ValueError(f'Data list {data_list_key} not specified in "{data_list_file_path}".')
+    expected_data = json_data[data_list_key]
+    if data_list_key == "test" and not isinstance(expected_data[0], dict):
+        # decathlon datalist may save the test images in a list directly instead of dict
+        expected_data = [{"image": i} for i in expected_data]
+
+    if base_dir is None:
+        base_dir = data_list_file_path.parent
+
+    return _append_paths(base_dir, is_segmentation, expected_data)
+
 def get_dataloader(
     data_path: str, 
     image_size: int = 256, 
@@ -59,29 +113,33 @@ def get_dataloader(
     mode: str = "train", 
 ):
     transform = {}
+    keys = ["image", "label"]+[f"distance_{i}" for i in range(num_classes)]
+    # interpolations = ["nearest"]+["bilinear"]*(num_classes+1)
+    interpolations = ["nearest"]*len(keys)
+    
     transform["train"] = transforms.Compose(
         [   
             # transforms.LoadImaged(keys=["image", "label"], ensure_channel_first=True), # *** turn off if using label smoothing *** 
             transforms.ScaleIntensityRanged(
-                keys=["image"], a_min=-2000, a_max=2000, b_min=0, b_max=1.0, clip=True
+                keys=["image"], a_min=-175, a_max=250.0, b_min=0, b_max=1.0, clip=True
             ),
             transforms.CropForegroundd(
-                keys=["image", "label"], source_key="image"
+                keys=keys, source_key="image"
             ),
-            transforms.Orientationd(keys=["image", "label"], axcodes="RAS"),
-            transforms.Spacingd(
-                keys=["image", "label"],
-                pixdim=(1.5, 1.5, 2.0),
-                mode=("bilinear", "nearest"),
-            ),
-            # transforms.RandScaleCropd(
-            #     keys=["image", "label"], 
-            #     roi_scale=[0.75, 0.85, 1.0],
-            #     random_size=False
+            transforms.Orientationd(keys=keys, axcodes="RAS"),
+            # transforms.Spacingd(
+            #     keys=keys,
+            #     pixdim=(1.5, 1.5, 2.0),
+            #     mode=interpolations,
             # ),
-            # transforms.Resized(keys=["image", "label"], spatial_size=(spatial_size, image_size, image_size)),
+            # # transforms.RandScaleCropd(
+            # #     keys=["image", "label"], 
+            # #     roi_scale=[0.75, 0.85, 1.0],
+            # #     random_size=False
+            # # ),
+            # # transforms.Resized(keys=["image", "label"], spatial_size=(spatial_size, image_size, image_size)),
             transforms.RandCropByPosNegLabeld(
-                keys=["image", "label"],
+                keys=keys,
                 label_key="label",
                 spatial_size=(spatial_size, image_size, image_size),
                 pos=1,
@@ -91,14 +149,14 @@ def get_dataloader(
                 image_threshold=0,
             ),
             
-            transforms.RandFlipd(keys=["image", "label"], prob=0.1, spatial_axis=0),
-            transforms.RandFlipd(keys=["image", "label"], prob=0.1, spatial_axis=1),
-            transforms.RandFlipd(keys=["image", "label"], prob=0.1, spatial_axis=2),
-            transforms.RandRotate90d(keys=["image", "label"], prob=0.1, max_k=3),
+            transforms.RandFlipd(keys=keys, prob=0.1, spatial_axis=0),
+            transforms.RandFlipd(keys=keys, prob=0.1, spatial_axis=1),
+            transforms.RandFlipd(keys=keys, prob=0.1,  spatial_axis=2),
+            transforms.RandRotate90d(keys=keys, prob=0.1, max_k=3),
 
             transforms.RandScaleIntensityd(keys=["image"], factors=0.1, prob=0.1),
             transforms.RandShiftIntensityd(keys=["image"], offsets=0.1, prob=0.5),
-            transforms.ToTensord(keys=["image", "label"]),
+            transforms.ToTensord(keys=keys),
         ]
     )
     
@@ -106,7 +164,7 @@ def get_dataloader(
         [   
             transforms.LoadImaged(keys=["image", "label"], ensure_channel_first=True),
             transforms.ScaleIntensityRanged(
-                keys=["image"], a_min=-2000, a_max=2000, b_min=0, b_max=1.0, clip=True
+                keys=["image"], a_min=-175, a_max=250.0, b_min=0, b_max=1.0, clip=True
             ),
             transforms.CropForegroundd(keys=["image", "label"], source_key="image"),
             transforms.Orientationd(keys=["image", "label"], axcodes="RAS"),
@@ -124,7 +182,7 @@ def get_dataloader(
         [   
             transforms.LoadImaged(keys=["image"], ensure_channel_first=True),
             transforms.ScaleIntensityRanged(
-                keys=["image"], a_min=-2000, a_max=2000, b_min=0, b_max=1.0, clip=True
+                keys=["image"], a_min=-175, a_max=250.0, b_min=0, b_max=1.0, clip=True
             ),
             transforms.ToTensord(keys=["image"]),
         ]
