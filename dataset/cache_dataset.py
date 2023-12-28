@@ -149,6 +149,9 @@ class LabelSmoothingCacheDataset(CacheDataset):
         # return 1 / (x + self.epsilon)
         return 1 / (x.pow(self.smoothing_order) + self.epsilon)
     
+    def exponential_decay(self, x: torch.Tensor, lambda_decay: float = 1.0) -> torch.Tensor:
+        return x * torch.exp(-lambda_decay * x)
+    
     def damped_sine(self, x: torch.Tensor, lambda_decay: float = 0.05, omega: float = 0.1, phi: float = 0) -> torch.Tensor:
         return torch.exp(-lambda_decay * x) * torch.sin(omega * x + phi)
     
