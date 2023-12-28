@@ -111,6 +111,7 @@ def get_dataloader(
     label_smoothing: bool = False,
     smoothing_alpha: float = 0.3,
     smoothing_order: float = 1.0,
+    lambda_decay: float = 1.0,
     mode: str = "train", 
 ):
     transform = {}

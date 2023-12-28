@@ -61,6 +61,7 @@ class Trainer(Engine):
         label_smoothing: bool = False,
         smoothing_alpha: float = 0.3,
         smoothing_order: float = 1.0,
+        lambda_decay: float = 1.0,
         use_amp: bool = True,
         use_cache: bool = True,
         use_wandb: bool = True,
@@ -103,6 +104,7 @@ class Trainer(Engine):
         self.use_cache = use_cache
         self.smothing_alpha = smoothing_alpha
         self.smoothing_order = smoothing_order
+        self.lambda_decay = lambda_decay
         
         self.local_rank = 0
         self.start_epoch = 0
@@ -184,6 +186,7 @@ class Trainer(Engine):
             label_smoothing=self.label_smoothing,
             smoothing_alpha=self.smothing_alpha,
             smoothing_order=self.smoothing_order,
+            lambda_decay=self.lambda_decay,
             mode="train"
         )
     

@@ -42,12 +42,14 @@ class LabelSmoothingCacheDataset(CacheDataset):
         num_classes: int = 14,
         smoothing_alpha: float = 0.3,
         smoothing_order: float = 1.0,
+        lambda_decay: float = 1.0,
         smoothing_type: str = "distance",
         epsilon: float = 1e-6,
     ) -> None:
         self.num_classes = num_classes
         self.smoothing_alpha = smoothing_alpha
         self.smoothing_order = smoothing_order
+        self.lambda_decay = lambda_decay
         self.smoothing_type = smoothing_type
         self.epsilon = epsilon
         
@@ -139,7 +141,8 @@ class LabelSmoothingCacheDataset(CacheDataset):
         # Calculate distances with correct broadcasting
         distances = torch.norm(indices[None, None, :, :, :, :] - centroids, dim=-1)
         
-        labels = self.rational(distances.squeeze(1)) * self.smoothing_alpha
+        # labels = self.rational(distances.squeeze(1)) * self.smoothing_alpha # wandb : diff-swin-unetr-btcv-11, 12
+        labels = self.exponential_decay(distances.squeeze(1)) * self.smoothing_alpha # wandb : diff-swin-unetr-btcv-13, 14
         # labels = self.damped_sine(distances.squeeze(1)) * self.smoothing_alpha # wandb : diff-swin-unetr-btcv-10
         labels = torch.abs(org - labels)
         
@@ -149,8 +152,8 @@ class LabelSmoothingCacheDataset(CacheDataset):
         # return 1 / (x + self.epsilon)
         return 1 / (x.pow(self.smoothing_order) + self.epsilon)
     
-    def exponential_decay(self, x: torch.Tensor, lambda_decay: float = 1.0) -> torch.Tensor:
-        return x * torch.exp(-lambda_decay * x)
+    def exponential_decay(self, x: torch.Tensor) -> torch.Tensor:
+        return x * torch.exp(-self.lambda_decay * x)
     
     def damped_sine(self, x: torch.Tensor, lambda_decay: float = 0.05, omega: float = 0.1, phi: float = 0) -> torch.Tensor:
         return torch.exp(-lambda_decay * x) * torch.sin(omega * x + phi)
