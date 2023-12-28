@@ -18,7 +18,7 @@ from light_training.utils.lr_scheduler import LinearWarmupCosineAnnealingLR
 from engine import Engine
 from models.utils.model_type import ModelType
 from models.diffusion import Diffusion
-from models import DiffSwinUNETR
+from models import DiffSwinUNETR, DistanceLabelSmothing
 from metric import dice_coeff
 from utils import parse_args, get_dataloader
 
@@ -120,6 +120,9 @@ class Trainer(Engine):
             self.scheduler = LinearWarmupCosineAnnealingLR(self.optimizer,
                                                            warmup_epochs=warmup_epochs,
                                                            max_epochs=max_epochs)
+        
+        if label_smoothing:
+            self.label_smoother = DistanceLabelSmothing(self.num_classes).to(self.device)
             
         if model_path is not None:
             self.load_checkpoint(model_path)
@@ -128,6 +131,7 @@ class Trainer(Engine):
                 
         if device_ids:
             self.model = DataParallel(self.model, device_ids=list(map(int, device_ids.split(','))))
+            self.label_smoother = DataParallel(self.label_smoother, device_ids=list(map(int, device_ids.split(','))))
             
         if use_wandb:
             if model_path is None:
@@ -244,18 +248,24 @@ class Trainer(Engine):
                             save_path=os.path.join(self.weights_path, f"epoch_{epoch+1}.pt"))
 
     def training_step(self, batch):
-        image, label = self.get_input(batch)
+        if self.label_smoothing:
+            images, labels, distances = self.get_input(batch)
+            print(images.shape, labels.shape, distances.shape)
+        else:
+            images, labels = self.get_input(batch)
         
         if self.model_type == ModelType.Diffusion:
-            x_start = (label) * 2 - 1
+            x_start = (labels) * 2 - 1
             x_t, t, _ = self.model(x=x_start, pred_type="q_sample")
-            pred = self.model(x=x_t, step=t, image=image, pred_type="denoise")
+            preds = self.model(x=x_t, step=t, image=images, pred_type="denoise")
         else:
-            pred = self.model(image)
+            preds = self.model(images)
 
-        return self.compute_loss(pred, label) 
+        return self.compute_loss(preds, labels, distances) 
     
-    def compute_loss(self, preds, labels):
+    def compute_loss(self, preds, labels, distances=None):
+        if self.label_smoothing: labels = self.label_smoother(labels, distances)
+        
         return self.criterion(preds, labels) 
     
     def validation_step(self, batch):
