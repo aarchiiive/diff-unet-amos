@@ -141,8 +141,8 @@ class LabelSmoothingCacheDataset(CacheDataset):
         # Calculate distances with correct broadcasting
         distances = torch.norm(indices[None, None, :, :, :, :] - centroids, dim=-1)
         
-        # labels = self.rational(distances.squeeze(1)) * self.smoothing_alpha # wandb : diff-swin-unetr-btcv-11, 12
-        labels = self.exponential_decay(distances.squeeze(1)) * self.smoothing_alpha # wandb : diff-swin-unetr-btcv-13, 14
+        labels = self.rational(distances.squeeze(1)) * self.smoothing_alpha # wandb : diff-swin-unetr-btcv-11, 12
+        # labels = self.exponential_decay(distances.squeeze(1)) * self.smoothing_alpha # wandb : diff-swin-unetr-btcv-13, 14
         # labels = self.damped_sine(distances.squeeze(1)) * self.smoothing_alpha # wandb : diff-swin-unetr-btcv-10
         labels = torch.abs(org - labels)
         

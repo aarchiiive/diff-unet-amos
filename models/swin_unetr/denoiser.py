@@ -19,6 +19,7 @@ import numpy as np
 
 import torch
 import torch.nn as nn
+from torchvision.utils import save_image
 
 from monai.utils import ensure_tuple_rep, look_up_option, optional_import
 
@@ -280,6 +281,75 @@ class SwinUNETRDenoiser(nn.Module):
 
         self.out = UnetOutBlock(spatial_dims=spatial_dims, in_channels=feature_size, out_channels=out_channels)
     
+    def _forward(self, x: torch.Tensor, t, embeddings=None, image=None, label = None):
+        temb = get_timestep_embedding(t, 128)
+        temb = self.temb.dense[0](temb)
+        temb = nonlinearity(temb)
+        temb = self.temb.dense[1](temb)
+
+        
+        
+        
+        if image is not None :
+            x = torch.cat([image, x], dim=1) # x = [1,14,96,96,96]
+
+        x0 = self.conv_0(x, temb) # torch.Size([1, 64, 96, 96, 96])
+        # c0 = self.conv_0(canny, temb)   # experiment2
+        if embeddings is not None:
+            x0 += embeddings[0]
+        crop_0 = -1*(torch.sigmoid(x0)) + 1
+        r0 = torch.mul(x0, crop_0)
+
+        x1 = self.down_1(x0, temb) # torch.Size([1, 64, 48, 48, 48])
+        if embeddings is not None:
+            x1 += embeddings[1]
+        crop_1 = -1*(torch.sigmoid(x1)) + 1
+        r1 = torch.mul(x1, crop_1)
+
+        x2 = self.down_2(x1, temb) # torch.Size([1, 128, 24, 24, 24])
+        if embeddings is not None:
+            x2 += embeddings[2]
+        crop_2 = -1*(torch.sigmoid(x2)) + 1
+        r2 = torch.mul(x2, crop_2)
+
+        x3 = self.down_3(x2, temb) # torch.Size([1, 256, 12, 12, 12])
+        if embeddings is not None:
+            x3 += embeddings[3]
+        crop_3 = -1*(torch.sigmoid(x3)) + 1
+        r3 = torch.mul(x3, crop_3)
+
+        x4 = self.down_4(x3, temb) # torch.Size([1, 512, 6, 6, 6])
+        if embeddings is not None:
+            x4 += embeddings[4]
+        crop_4 = -1*(torch.sigmoid(x4)) + 1
+        r4 = torch.mul(x4, crop_4)
+        
+        u4 = self.upcat_4(x4, x3, temb) # torch.Size([1, 256, 12, 12, 12])
+        u3 = self.upcat_3(u4, x2, temb) # torch.Size([1, 128, 24, 24, 24])
+        u2 = self.upcat_2(u3, x1, temb) # torch.Size([1, 64, 48, 48, 48])
+        u1 = self.upcat_1(u2, x0, temb) # torch.Size([1, 64, 96, 96, 96])
+
+        logits = self.final_conv(u1)  # torch.Size([1, 13, 96, 96, 96])
+        
+        save_image(x0[0,1,:,:,2], 'pred.png')
+        save_image(crop_0[0,1,:,:,2], 'RA.png')
+        save_image(r0[0,1,:,:,2], 'output.png')
+
+        # ## Reverse Attention branch
+        x = self.conv0(logits)
+        x = x + r4
+        x = self.upsample0(x)
+        x = x + r3
+        x = self.upsample1(x)
+        x = x + r2
+        x = self.upsample2(x)
+        x = x + r1
+        x = self.upsample3(x)
+        x = x + r0
+        logits = self.final_conv1(x)
+
+        return logits
+    
     def forward(
         self, 
         x: torch.Tensor, 
@@ -298,27 +368,44 @@ class SwinUNETRDenoiser(nn.Module):
             hidden_states_out[i] = hidden_states_out[i] + embeddings[0][i]
         
         enc0 = self.encoder1(x, t) + embeddings[1] # [1, 48, 96, 96, 96]
+        r0 = self.reverse_attention(enc0)
+        # print("r0:", r0.shape)
         # enc0 = self.smooth[0](enc0)
         enc1 = self.encoder2(hidden_states_out[0], t) + embeddings[2] # [1, 48, 48, 48, 48]
+        r1 = self.reverse_attention(enc1)
+        # print("r1:", r1.shape)
         # enc1 = self.smooth[1](enc1)
         enc2 = self.encoder3(hidden_states_out[1], t) + embeddings[3] # [1, 96, 24, 24, 24]
+        r2 = self.reverse_attention(enc2)
+        # print("r2:", r2.shape)
         # enc2 = self.smooth[2](enc2)
         enc3 = self.encoder4(hidden_states_out[2], t) + embeddings[4] # [1, 192, 12, 12, 12]
+        r3 = self.reverse_attention(enc3)
+        # print("r3:", r3.shape)
         # enc3 = self.smooth[3](enc3)
         
         dec4 = self.encoder10(hidden_states_out[4], t)
         dec3 = self.decoder5(dec4, hidden_states_out[3], t)
         dec2 = self.decoder4(dec3, enc3, t) # [1, 192, 12, 12, 12]
+        dec2 = dec2 + r3
         dec1 = self.decoder3(dec2, enc2, t) # [1, 96, 24, 24, 24]
+        dec1 = dec1 + r2
         dec0 = self.decoder2(dec1, enc1, t) # [1, 48, 48, 48, 48]
+        dec0 = dec0 + r1
         
-        out = self.decoder1(dec0, enc0, t)
+        out = self.decoder1(dec0, enc0, t) # [1, 48, 96, 96, 96]
+        out = out + r0
         logits = self.out(out) # + comp # add composition to output
         
         # logits = logits + self.vxm(logits, image, noise)
         # logits = self.vxm(logits, image, noise)
         
         return logits
+    
+    def reverse_attention(self, x: torch.Tensor) -> torch.Tensor:
+        crop = -(torch.sigmoid(x)) + 1
+        r = torch.mul(x, crop)
+        return r
 
     def load_from(self, weights):
         with torch.no_grad():
@@ -368,4 +455,5 @@ class SwinUNETRDenoiser(nn.Module):
             self.swinViT.layers4[0].downsample.norm.bias.copy_(
                 weights["state_dict"]["module.layers4.0.downsample.norm.bias"]
             )
+    
     
